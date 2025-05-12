@@ -1,0 +1,8 @@
+
+# Unity 프로젝트용 .editorconfig
+root = true
+
+[*.cs]
+charset = utf-8-bom
+end_of_line = crlf
+insert_final_newline = true
