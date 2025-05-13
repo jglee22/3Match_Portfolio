@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using DG.Tweening;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -55,7 +56,7 @@ public class GridManager : MonoBehaviour
                 Vector3 spawnPos = new Vector3(x * cellSize, y * cellSize, 0f) - (Vector3)offset + Vector3.up * yOffset;
 
                 // 랜덤 타입 선택
-                BlockType randType = (BlockType)Random.Range(0, System.Enum.GetValues(typeof(BlockType)).Length);
+                BlockType randType = GetNonMatchingType(x, y);
 
                 // 프리팹 생성
                 GameObject blockObj = Instantiate(blockPrefab, spawnPos, Quaternion.identity, blocksParent);
@@ -71,7 +72,38 @@ public class GridManager : MonoBehaviour
             }
         }
     }
+    // 특정 위치에 블록을 배치할 때 3개 이상 연속되지 않도록 안전한 타입을 고름
+    BlockType GetNonMatchingType(int x, int y)
+    {
+        List<BlockType> possibleTypes = new List<BlockType>((BlockType[])System.Enum.GetValues(typeof(BlockType)));
 
+        // 왼쪽 2칸 검사
+        if (x >= 2)
+        {
+            Block left1 = GetBlock(x - 1, y);
+            Block left2 = GetBlock(x - 2, y);
+
+            if (left1 != null && left2 != null && left1.blockType == left2.blockType)
+            {
+                possibleTypes.Remove(left1.blockType); // 같은 타입 제거
+            }
+        }
+
+        // 아래쪽 2칸 검사
+        if (y >= 2)
+        {
+            Block down1 = GetBlock(x, y - 1);
+            Block down2 = GetBlock(x, y - 2);
+
+            if (down1 != null && down2 != null && down1.blockType == down2.blockType)
+            {
+                possibleTypes.Remove(down1.blockType); // 같은 타입 제거
+            }
+        }
+
+        // 남아있는 타입 중에서 랜덤으로 선택
+        return possibleTypes[Random.Range(0, possibleTypes.Count)];
+    }
     // 블록 클릭 처리
     public void SelectBlock(Block block)
     {
@@ -99,9 +131,11 @@ public class GridManager : MonoBehaviour
 
     void SwapBlocks(Block a, Block b)
     {
-        Vector3 tempPos = a.transform.position;
-        a.transform.position = b.transform.position;
-        b.transform.position = tempPos;
+        Vector3 posA = a.transform.position;
+        Vector3 posB = b.transform.position;
+
+        a.transform.DOMove(posB, 0.2f).SetLink(a.gameObject);
+        b.transform.DOMove(posA, 0.2f).SetLink(b.gameObject);
 
         blocks[a.x, a.y] = b.gameObject;
         blocks[b.x, b.y] = a.gameObject;
@@ -113,8 +147,18 @@ public class GridManager : MonoBehaviour
         b.x = tempX;
         b.y = tempY;
 
-        // 매칭 검사 → 제거 → 연쇄 처리
-        StartCoroutine(HandleMatches());
+        // DOTween이 끝난 후 검사 실행
+        DOVirtual.DelayedCall(0.25f, () =>
+        {
+            if (!IsBlockInMatch(a) && !IsBlockInMatch(b))
+            {
+                SwapBack(a, b);
+            }
+            else
+            {
+                HandleMatches();
+            }
+        });
     }
 
     // 현재 그리드에서 매칭된 블록들을 모두 찾아 반환
@@ -201,20 +245,20 @@ public class GridManager : MonoBehaviour
             if (blocks[x, y] != null && blocks[x, y - 1] == null)
             {
                 int targetY = y - 1;
-
-                // 아래 빈 칸 찾기
                 while (targetY > 0 && blocks[x, targetY - 1] == null)
                     targetY--;
 
-                // 블록 이동
                 blocks[x, targetY] = blocks[x, y];
                 blocks[x, y] = null;
 
                 Block block = blocks[x, targetY].GetComponent<Block>();
                 block.y = targetY;
-                block.transform.position = new Vector3(x * cellSize, targetY * cellSize, 0f)
-                                         - new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f)
-                                         + Vector3.up * (height * 0.1f);
+
+                Vector3 targetPos = new Vector3(x * cellSize, targetY * cellSize, 0f)
+                                  - new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f)
+                                  + Vector3.up * (height * 0.1f);
+
+                block.transform.DOMove(targetPos, 0.2f).SetLink(block.gameObject);
             }
         }
     }
@@ -225,14 +269,17 @@ public class GridManager : MonoBehaviour
         {
             CollapseColumn(x);
 
-            // 빈 칸 생성
             for (int y = 0; y < height; y++)
             {
                 if (blocks[x, y] == null)
                 {
                     BlockType randType = (BlockType)Random.Range(0, System.Enum.GetValues(typeof(BlockType)).Length);
 
-                    GameObject blockObj = Instantiate(blockPrefab, Vector3.zero, Quaternion.identity, blocksParent);
+                    Vector3 spawnPos = new Vector3(x * cellSize, (y + 2) * cellSize, 0f)
+                                     - new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f)
+                                     + Vector3.up * (height * 0.1f);
+
+                    GameObject blockObj = Instantiate(blockPrefab, spawnPos, Quaternion.identity, blocksParent);
                     blockObj.name = $"Block_{x}_{y}";
 
                     Block block = blockObj.GetComponent<Block>();
@@ -242,43 +289,124 @@ public class GridManager : MonoBehaviour
 
                     blocks[x, y] = blockObj;
 
-                    // 위치 설정
-                    block.transform.position = new Vector3(x * cellSize, y * cellSize, 0f)
-                                             - new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f)
-                                             + Vector3.up * (height * 0.1f);
+                    Vector3 targetPos = new Vector3(x * cellSize, y * cellSize, 0f)
+                                      - new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f)
+                                      + Vector3.up * (height * 0.1f);
+
+                    block.transform.DOMove(targetPos, 0.3f).SetEase(Ease.OutQuad).SetLink(block.gameObject);
                 }
             }
         }
     }
 
-    // 매칭 → 제거 → 채우기 → 반복
-    IEnumerator HandleMatches()
+    // 코루틴으로 자연스럽게 이동 (애니메이션)
+    IEnumerator MoveToPosition(Transform obj, Vector3 target, float time)
     {
-        yield return new WaitForSeconds(0.2f); // 약간의 연출 대기
+        if (obj == null) yield break;
 
-        List<Block> matches = FindAllMatches();
+        Vector3 start = obj.position;
+        float t = 0f;
 
-        while (matches.Count > 0)
+        while (t < 1f)
         {
-            // 제거
-            foreach (Block block in matches)
-            {
-                blocks[block.x, block.y] = null;
-                Destroy(block.gameObject);
-            }
-
-            yield return new WaitForSeconds(0.2f); // 제거 후 딜레이
-
-            // 채우기
-            FillEmptySpaces();
-
-            yield return new WaitForSeconds(0.2f); // 채우기 후 딜레이
-
-            // 다시 검사
-            matches = FindAllMatches();
+            if (obj == null) yield break;
+            t += Time.deltaTime / time;
+            obj.position = Vector3.Lerp(start, target, t);
+            yield return null;
         }
 
-        // 마지막 상태로 돌아옴
-        Debug.Log("All matches handled.");
+        // 마지막에 다시 null 확인
+        if (obj != null)
+            obj.position = target;
+    }
+
+    // 매칭 → 제거 → 채우기 → 반복
+    void HandleMatches()
+    {
+        List<Block> matches = FindAllMatches();
+
+        if (matches.Count == 0) return;
+
+        foreach (Block block in matches)
+        {
+            blocks[block.x, block.y] = null;
+            Destroy(block.gameObject);
+        }
+
+        DOVirtual.DelayedCall(0.25f, () =>
+        {
+            FillEmptySpaces();
+
+            // 다시 연쇄 검사
+            DOVirtual.DelayedCall(0.35f, () =>
+            {
+                HandleMatches();
+            });
+        });
+    }
+
+    // 해당 블록이 포함된 매칭이 있는지 확인
+    bool IsBlockInMatch(Block block)
+    {
+        List<Block> horizontal = new List<Block> { block };
+        List<Block> vertical = new List<Block> { block };
+
+        // 좌우 검사
+        int x = block.x;
+        int y = block.y;
+        BlockType type = block.blockType;
+
+        // 왼쪽
+        int i = x - 1;
+        while (i >= 0 && GetBlock(i, y)?.blockType == type)
+        {
+            horizontal.Add(GetBlock(i, y));
+            i--;
+        }
+        // 오른쪽
+        i = x + 1;
+        while (i < width && GetBlock(i, y)?.blockType == type)
+        {
+            horizontal.Add(GetBlock(i, y));
+            i++;
+        }
+
+        // 아래쪽
+        int j = y - 1;
+        while (j >= 0 && GetBlock(x, j)?.blockType == type)
+        {
+            vertical.Add(GetBlock(x, j));
+            j--;
+        }
+        // 위쪽
+        j = y + 1;
+        while (j < height && GetBlock(x, j)?.blockType == type)
+        {
+            vertical.Add(GetBlock(x, j));
+            j++;
+        }
+
+        return horizontal.Count >= 3 || vertical.Count >= 3;
+    }
+    void SwapBack(Block a, Block b)
+    {
+        Vector3 posA = a.transform.position;
+        Vector3 posB = b.transform.position;
+
+        a.transform.DOMove(posB, 0.2f).SetLink(a.gameObject);
+        b.transform.DOMove(posA, 0.2f).SetLink(b.gameObject);
+
+        DOVirtual.DelayedCall(0.25f, () =>
+        {
+            blocks[a.x, a.y] = b.gameObject;
+            blocks[b.x, b.y] = a.gameObject;
+
+            int tempX = a.x;
+            int tempY = a.y;
+            a.x = b.x;
+            a.y = b.y;
+            b.x = tempX;
+            b.y = tempY;
+        });
     }
 }
