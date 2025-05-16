@@ -378,7 +378,7 @@ public class GridManager : MonoBehaviour
         {
             FillEmptySpaces();
 
-            // ✅ 이 부분이 핵심
+            // 이 부분이 핵심
             DOVirtual.DelayedCall(0.35f, () =>
             {
                 // 매칭이 또 생기면 연쇄 계속
@@ -490,6 +490,9 @@ public class GridManager : MonoBehaviour
         Sprite newSprite = spriteDict[specialBlock.blockType];
         specialBlock.spriteRenderer.sprite = newSprite;
     }
+
+    // 특수 블록(가로줄 또는 세로줄 제거) 발동 시 실행되는 코루틴
+    // 중심 블록을 기준으로 양옆 블록들을 순차적으로 제거하는 연출 포함
     IEnumerator ActivateSpecialBlockSequential(Block block)
     {
         int x = block.x;
@@ -504,17 +507,18 @@ public class GridManager : MonoBehaviour
                 Block b = GetBlock(i, y);
                 if (b != null) toRemove.Add(b);
             }
-
+            // 중심 블록 기준으로 가까운 순으로 정렬 (좌↔우 순차 제거를 위함)
             toRemove.Sort((a, b) => Mathf.Abs(a.x - x).CompareTo(Mathf.Abs(b.x - x)));
         }
         else
         {
+            // 세로줄 수집
             for (int j = 0; j < height; j++)
             {
                 Block b = GetBlock(x, j);
                 if (b != null) toRemove.Add(b);
             }
-
+            // 중심 블록 기준으로 가까운 순으로 정렬 (상↕하 순차 제거)
             toRemove.Sort((a, b) => Mathf.Abs(a.y - y).CompareTo(Mathf.Abs(b.y - y)));
         }
 
@@ -532,16 +536,20 @@ public class GridManager : MonoBehaviour
         }
 
         yield return new WaitForSeconds(0.2f);
+
+        // 빈칸 채우기 후 연쇄 매칭 여부 확인
         FillEmptySpaces();
         DOVirtual.DelayedCall(0.35f, () =>
         {
             if (FindAllMatches().Count > 0)
             {
+                // 연쇄 발생 → 재귀 호출
                 HandleMatches();
             }
             else
             {
-                isProcessing = false; // ✅ 여기 꼭 있어야 함!
+                // 연쇄 종료 → 입력 가능 상태로 복귀
+                isProcessing = false;
             }
         });
     }
