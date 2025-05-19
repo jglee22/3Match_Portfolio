@@ -13,11 +13,15 @@ public class ScoreManager : MonoBehaviour
         if (Instance == null) Instance = this;
         else Destroy(gameObject);
     }
+    private void Start()
+    {
+        scoreText.text = $"Score: {currentScore} / {GameManager.Instance.goalScore}";
+    }
 
     public void AddScore(int amount)
     {
         currentScore += amount;
-        scoreText.text = $"Score: {currentScore}";
+        scoreText.text = $"Score: {currentScore} / {GameManager.Instance.goalScore}";
     }
 
     public void ResetScore()

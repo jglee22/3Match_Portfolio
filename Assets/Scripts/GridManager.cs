@@ -367,10 +367,15 @@ public class GridManager : MonoBehaviour
 
         // 점수 계산 (예: 10점 × 블록 수)
         ScoreManager.Instance.AddScore(matches.Count * 10);
+        // 매치 성공 SFX
+        if (matches.Count > 0)
+            SoundManager.Instance.PlaySFX(SoundManager.Instance.matchSFX);
 
         foreach (Block block in matches)
         {
             blocks[block.x, block.y] = null;
+            
+           
             Destroy(block.gameObject);
         }
 
@@ -498,6 +503,8 @@ public class GridManager : MonoBehaviour
         int x = block.x;
         int y = block.y;
 
+        // 특수 블록 사운드
+        SoundManager.Instance.PlaySFX(SoundManager.Instance.specialMatchSFX);
         List<Block> toRemove = new List<Block>();
 
         if (block.isRowClear)

@@ -12,6 +12,9 @@ public class GameManager : MonoBehaviour
     public Button restartButton;
     public bool isGameOver = false;
 
+    public int goalScore = 1500; // 목표 점수
+    private bool isGameEnded = false; // 클리어 or 실패 시 중복 처리 방지
+
     void Awake()
     {
         if (Instance == null) Instance = this;
@@ -35,5 +38,11 @@ public class GameManager : MonoBehaviour
     public void RestartGame()
     {
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+    }
+    public void ShowGameClear()
+    {
+        int finalScore = ScoreManager.Instance.GetScore();
+        finalScoreText.text = $"클리어! 점수: {finalScore}";
+        gameOverPanel.SetActive(true);
     }
 }
