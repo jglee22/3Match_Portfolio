@@ -16,8 +16,18 @@ public class GameTimer : MonoBehaviour
 
         OnTimeOver = () =>
         {
-            FindAnyObjectByType<GameManager>().isGameOver = true;
-            FindAnyObjectByType<GameManager>().ShowGameOver();
+            int finalScore = ScoreManager.Instance.GetScore();
+            
+            GameManager.Instance.isGameOver = true;
+
+            if (finalScore >= GameManager.Instance.goalScore)
+            {
+                GameManager.Instance.ShowGameClear(); // 목표 점수 도달 → 클리어
+            }
+            else
+            {
+                GameManager.Instance.ShowGameClear(); // 목표 미달 → 실패
+            }
         };
     }
 
@@ -30,6 +40,7 @@ public class GameTimer : MonoBehaviour
         {
             remainingTime = 0;
             isRunning = false;
+
             OnTimeOver?.Invoke(); // 시간 종료 처리
         }
 
