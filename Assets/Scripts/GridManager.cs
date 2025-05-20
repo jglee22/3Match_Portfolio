@@ -469,9 +469,28 @@ public class GridManager : MonoBehaviour
     void CreateSpecialBlock(List<Block> matched)
     {
         if (matched.Count < 4) return; // 4개 이상만 특수 블록 생성
-
         // 기준 블록 하나 선택 (중앙이나 랜덤)
         Block specialBlock = matched[Random.Range(0, matched.Count)];
+        Debug.Log($"match count : {matched.Count}");
+        if (matched.Count >= 5)
+        {
+            Debug.Log($"폭탄 생성");
+
+            specialBlock.blockType = BlockType.Bomb;
+            Sprite bombSprite = spriteDict[specialBlock.blockType];
+            specialBlock.spriteRenderer.sprite = bombSprite;
+            specialBlock.isSpecial = true;
+
+            matched.Remove(specialBlock);
+            blocks[specialBlock.x, specialBlock.y] = specialBlock.gameObject;
+
+            specialBlock.spriteRenderer.DOFade(0.5f, 0.5f)
+                .SetLoops(-1, LoopType.Yoyo)
+                .SetEase(Ease.InOutSine)
+                .SetLink(specialBlock.gameObject);
+
+            return; // ✅ 여기서 더 이상 아래 코드 실행하지 않도록 종료
+        }
 
         // 기존 블록 제거
         matched.Remove(specialBlock);
@@ -506,6 +525,50 @@ public class GridManager : MonoBehaviour
         // 특수 블록 사운드
         SoundManager.Instance.PlaySFX(SoundManager.Instance.specialMatchSFX);
         List<Block> toRemove = new List<Block>();
+
+        if (block.blockType == BlockType.Bomb)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    int nx = block.x + dx;
+                    int ny = block.y + dy;
+
+                    if (IsInsideGrid(nx, ny))
+                    {
+                        Block b = GetBlock(nx, ny);
+                        if (b != null) toRemove.Add(b);
+                    }
+                }
+            }
+
+            // 자신도 제거 대상에 포함
+            if (!toRemove.Contains(block))
+                toRemove.Add(block);
+
+            foreach (Block b in toRemove)
+            {
+                blocks[b.x, b.y] = null;
+                Destroy(b.gameObject);
+                ScoreManager.Instance.AddScore(10);
+                yield return new WaitForSeconds(0.05f);
+            }
+
+            yield return new WaitForSeconds(0.2f);
+
+            FillEmptySpaces();
+
+            DOVirtual.DelayedCall(0.35f, () =>
+            {
+                if (FindAllMatches().Count > 0)
+                    HandleMatches();
+                else
+                    isProcessing = false;
+            });
+
+            yield break;
+        }
 
         if (block.isRowClear)
         {
@@ -591,5 +654,9 @@ public class GridManager : MonoBehaviour
 
             StartCoroutine(ActivateSpecialBlockSequential(special));
         });
+    }
+    public bool IsInsideGrid(int x, int y)
+    {
+        return x >= 0 && x < width && y >= 0 && y < height;
     }
 }
