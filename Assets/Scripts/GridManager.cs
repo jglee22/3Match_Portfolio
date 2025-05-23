@@ -1,6 +1,7 @@
 ﻿using DG.Tweening;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 [System.Serializable]
@@ -26,6 +27,9 @@ public class GridManager : MonoBehaviour
     private GameObject[,] blocks;
     private Block selectedBlock = null;
     private bool isProcessing = false;
+    private int chainCount = 0;
+
+    private bool[,] gridMask;
 
     // 일반 블록만 배열로 관리
     BlockType[] normalTypes = new BlockType[]
@@ -47,19 +51,52 @@ public class GridManager : MonoBehaviour
     void Start()
     {
         blocks = new GameObject[width, height];
-        GenerateGrid();
+        LoadRandomMask();    // 마스크 랜덤 설정
+        GenerateGrid();      // 그리드 생성
     }
+    void LoadRandomMask()
+    {
+        string[] maskNames = {
+            "Masks/Mask_Level01",
+            "Masks/Mask_Level02",
+            "Masks/Mask_Level03",
+            "Masks/Mask_Level04",
+            "Masks/Mask_Heart",
+            "Masks/Mask_Tree",
+        };
 
+        int randomIndex = Random.Range(0, maskNames.Length);
+        string selectedName = maskNames[randomIndex];
+
+        TextAsset maskCsv = Resources.Load<TextAsset>(selectedName);
+        if (maskCsv == null)
+        {
+            Debug.LogError($"마스크 파일을 찾을 수 없습니다: {selectedName}");
+            return;
+        }
+
+        gridMask = MaskLoader.LoadMaskFromCSV(maskCsv);
+
+        Debug.Log($"✅ 선택된 마스크: {selectedName}");
+    }
     void GenerateGrid()
     {
+        int width = gridMask.GetLength(0);
+        int height = gridMask.GetLength(1);
+        blocks = new GameObject[width, height]; // 반드시 여기서 초기화
+
         Vector2 offset = new Vector2((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f);
         float yOffset = height * 0.1f;
-
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
+                // 마스킹된 칸이면 생성 스킵
+                if (gridMask != null && !gridMask[x, y])
+                    continue;
+
                 Vector3 spawnPos = new Vector3(x * cellSize, y * cellSize, 0f) - (Vector3)offset + Vector3.up * yOffset;
+
                 GameObject blockObj = Instantiate(blockPrefab, spawnPos, Quaternion.identity, blocksParent);
                 blockObj.name = $"Block_{x}_{y}";
 
@@ -113,7 +150,10 @@ public class GridManager : MonoBehaviour
             selectedBlock = block;
 
             // 시각적 강조
-            block.transform.DOScale(0.65f, 0.1f).SetEase(Ease.OutQuad);
+            if (block.blockType == BlockType.Bomb || block.blockType == BlockType.Lightning)
+                block.transform.DOScale(1.25f, 0.1f).SetEase(Ease.OutQuad);
+            else
+                block.transform.DOScale(0.65f, 0.1f).SetEase(Ease.OutQuad);
         }
         else
         {
@@ -121,8 +161,11 @@ public class GridManager : MonoBehaviour
             {
                 isProcessing = true;
 
-                // ✅ 이전 선택 해제
-                selectedBlock.transform.DOScale(0.5f, 0.1f);
+                // 이전 선택 해제
+                if (selectedBlock.blockType == BlockType.Bomb || selectedBlock.blockType == BlockType.Lightning)
+                    selectedBlock.transform.DOScale(1f, 0.1f);
+                else
+                    selectedBlock.transform.DOScale(0.5f, 0.1f);
 
                 // 특수 블록 클릭된 경우 처리
                 if (selectedBlock.isSpecial)
@@ -148,11 +191,17 @@ public class GridManager : MonoBehaviour
             else
             {
                 // 이전 선택 블록 해제 애니메이션
-                selectedBlock.transform.DOScale(0.5f, 0.1f);
+                if (selectedBlock.blockType == BlockType.Bomb || selectedBlock.blockType == BlockType.Lightning)
+                    selectedBlock.transform.DOScale(1f, 0.1f);
+                else
+                    selectedBlock.transform.DOScale(0.5f, 0.1f);
 
                 // 새 선택 블록 강조
                 selectedBlock = block;
-                block.transform.DOScale(0.65f, 0.1f).SetEase(Ease.OutQuad);
+                if (block.blockType == BlockType.Bomb || block.blockType == BlockType.Lightning)
+                    block.transform.DOScale(1.25f, 0.1f);
+                else
+                    block.transform.DOScale(0.65f, 0.1f);
             }
         }
     }
@@ -280,8 +329,14 @@ public class GridManager : MonoBehaviour
             if (blocks[x, y] != null && blocks[x, y - 1] == null)
             {
                 int targetY = y - 1;
-                while (targetY > 0 && blocks[x, targetY - 1] == null)
+
+                // 마스크가 true인 자리만 이동 대상으로 허용
+                while (targetY > 0 && (blocks[x, targetY - 1] == null || (gridMask != null && !gridMask[x, targetY])))
                     targetY--;
+
+                // 마스킹된 위치면 이동하지 않음
+                if (gridMask != null && !gridMask[x, targetY])
+                    continue;
 
                 blocks[x, targetY] = blocks[x, y];
                 blocks[x, y] = null;
@@ -306,6 +361,8 @@ public class GridManager : MonoBehaviour
 
             for (int y = 0; y < height; y++)
             {
+                if (gridMask != null && !gridMask[x, y]) continue;
+
                 if (blocks[x, y] == null)
                 {
                     BlockType randType = normalTypes[Random.Range(0, normalTypes.Length)];
@@ -360,10 +417,18 @@ public class GridManager : MonoBehaviour
     {
         List<Block> matches = FindAllMatches();
 
-        if (matches.Count == 0) return;
+        if (matches.Count == 0)
+        {
+            chainCount = 0; // 연쇄 종료 → 초기화
+            isProcessing = false;
+            return;
+        }
 
+        chainCount++; // 연쇄 카운트 증가
+
+     
         // 특수 블록 생성 시도
-        CreateSpecialBlock(matches);
+        CreateSpecialBlock(matches,chainCount);
 
         // 점수 계산 (예: 10점 × 블록 수)
         ScoreManager.Instance.AddScore(matches.Count * 10);
@@ -375,7 +440,6 @@ public class GridManager : MonoBehaviour
         {
             blocks[block.x, block.y] = null;
             
-           
             Destroy(block.gameObject);
         }
 
@@ -466,53 +530,63 @@ public class GridManager : MonoBehaviour
         });
     }
 
-    void CreateSpecialBlock(List<Block> matched)
+    void CreateSpecialBlock(List<Block> matched, int chainCount)
     {
-        if (matched.Count < 4) return; // 4개 이상만 특수 블록 생성
-        // 기준 블록 하나 선택 (중앙이나 랜덤)
+        if (matched.Count < 4) return;
+
         Block specialBlock = matched[Random.Range(0, matched.Count)];
-        Debug.Log($"match count : {matched.Count}");
+
+        // 💣 폭탄 조건
         if (matched.Count >= 5)
         {
-            Debug.Log($"폭탄 생성");
+            Block bombBlock = matched[Random.Range(0, matched.Count)];
+            bombBlock.blockType = BlockType.Bomb;
+            bombBlock.spriteRenderer.sprite = spriteDict[bombBlock.blockType];
+            bombBlock.isSpecial = true;
+            bombBlock.transform.localScale = Vector3.one;
+            matched.Remove(bombBlock);
+            blocks[bombBlock.x, bombBlock.y] = bombBlock.gameObject;
 
-            specialBlock.blockType = BlockType.Bomb;
-            Sprite bombSprite = spriteDict[specialBlock.blockType];
-            specialBlock.spriteRenderer.sprite = bombSprite;
-            specialBlock.isSpecial = true;
-
-            matched.Remove(specialBlock);
-            blocks[specialBlock.x, specialBlock.y] = specialBlock.gameObject;
-
-            specialBlock.spriteRenderer.DOFade(0.5f, 0.5f)
+            bombBlock.spriteRenderer.DOFade(0.5f, 0.5f)
                 .SetLoops(-1, LoopType.Yoyo)
                 .SetEase(Ease.InOutSine)
-                .SetLink(specialBlock.gameObject);
-
-            return; // ✅ 여기서 더 이상 아래 코드 실행하지 않도록 종료
+                .SetLink(bombBlock.gameObject);
         }
 
-        // 기존 블록 제거
-        matched.Remove(specialBlock);
-        blocks[specialBlock.x, specialBlock.y] = specialBlock.gameObject;
+        // ⚡ 번개 조건 (남은 matched 안에서)
+        if (chainCount >= 3 && matched.Count > 0)
+        {
+            Block lightningBlock = matched[Random.Range(0, matched.Count)];
+            lightningBlock.blockType = BlockType.Lightning;
+            lightningBlock.spriteRenderer.sprite = spriteDict[lightningBlock.blockType];
+            lightningBlock.isSpecial = true;
+            lightningBlock.transform.localScale = Vector3.one;
+            matched.Remove(lightningBlock);
+            blocks[lightningBlock.x, lightningBlock.y] = lightningBlock.gameObject;
 
-        // 특수 블록 설정
+            lightningBlock.spriteRenderer.DOFade(0.5f, 0.5f)
+                .SetLoops(-1, LoopType.Yoyo)
+                .SetEase(Ease.InOutSine)
+                .SetLink(lightningBlock.gameObject);
+        }
+
+
+        // 기본 Row/Col 특수 블록 생성
         specialBlock.isSpecial = true;
-
-        // 반짝임 DOTween 추가
-        specialBlock.spriteRenderer.DOFade(0.5f, 0.5f)
-            .SetLoops(-1, LoopType.Yoyo)
-            .SetEase(Ease.InOutSine)
-            .SetLink(specialBlock.gameObject); // 블록 제거 시 자동 중단
-
-        // 방향 랜덤 지정 (줄 제거 방향)
         bool horizontal = Random.Range(0, 2) == 0;
         specialBlock.isRowClear = horizontal;
         specialBlock.blockType = horizontal ? BlockType.RowClear : BlockType.ColClear;
+        specialBlock.spriteRenderer.sprite = spriteDict[specialBlock.blockType];
 
-        // 스프라이트 교체
-        Sprite newSprite = spriteDict[specialBlock.blockType];
-        specialBlock.spriteRenderer.sprite = newSprite;
+        matched.Remove(specialBlock);
+        blocks[specialBlock.x, specialBlock.y] = specialBlock.gameObject;
+
+        specialBlock.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+
+        specialBlock.spriteRenderer.DOFade(0.5f, 0.5f)
+            .SetLoops(-1, LoopType.Yoyo)
+            .SetEase(Ease.InOutSine)
+            .SetLink(specialBlock.gameObject);
     }
 
     // 특수 블록(가로줄 또는 세로줄 제거) 발동 시 실행되는 코루틴
@@ -525,7 +599,7 @@ public class GridManager : MonoBehaviour
         // 특수 블록 사운드
         SoundManager.Instance.PlaySFX(SoundManager.Instance.specialMatchSFX);
         List<Block> toRemove = new List<Block>();
-
+        // 블록 타입이 폭탄일때
         if (block.blockType == BlockType.Bomb)
         {
             for (int dx = -1; dx <= 1; dx++)
@@ -553,6 +627,50 @@ public class GridManager : MonoBehaviour
                 Destroy(b.gameObject);
                 ScoreManager.Instance.AddScore(10);
                 yield return new WaitForSeconds(0.05f);
+            }
+
+            yield return new WaitForSeconds(0.2f);
+
+            FillEmptySpaces();
+
+            DOVirtual.DelayedCall(0.35f, () =>
+            {
+                if (FindAllMatches().Count > 0)
+                    HandleMatches();
+                else
+                    isProcessing = false;
+            });
+
+            yield break;
+        }
+        // 블록 타입이 라이트닝일때
+        if (block.blockType == BlockType.Lightning)
+        {
+            // 세로 줄 제거 (x 고정, y 전체)
+            for (int j = 0; j < height; j++)
+            {
+                Block b = GetBlock(block.x, j);
+                if (b != null) toRemove.Add(b);
+            }
+
+            // 가로 줄 제거 (y 고정, x 전체)
+            for (int i = 0; i < width; i++)
+            {
+                Block b = GetBlock(i, block.y);
+                if (b != null && !toRemove.Contains(b)) // 중복 방지
+                    toRemove.Add(b);
+            }
+
+            // 자기 자신도 포함
+            if (!toRemove.Contains(block))
+                toRemove.Add(block);
+
+            foreach (Block b in toRemove)
+            {
+                blocks[b.x, b.y] = null;
+                Destroy(b.gameObject);
+                ScoreManager.Instance.AddScore(10);
+                yield return new WaitForSeconds(0.03f);
             }
 
             yield return new WaitForSeconds(0.2f);

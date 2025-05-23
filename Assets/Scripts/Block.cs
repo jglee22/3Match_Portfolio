@@ -12,8 +12,8 @@ public enum BlockType
     // 특수 블록
     RowClear, // 가로줄 제거 특수 블록
     ColClear,  // 세로줄 제거 특수 블록
-    Bomb,
-    Lightning,
+    Bomb,     //3x3 제거
+    Lightning, //가로,세로줄 전체 제거
 }
 public class Block : MonoBehaviour
 {
