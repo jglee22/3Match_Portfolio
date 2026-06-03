@@ -1,20 +1,18 @@
-﻿using UnityEditor;
-using UnityEngine;
+﻿using UnityEngine;
+
 public enum BlockType
 {
-    // 일반 블록
     Apple,
     Banana,
     Orange,
     Grape,
-    // 필요시 추가
 
-    // 특수 블록
-    RowClear, // 가로줄 제거 특수 블록
-    ColClear,  // 세로줄 제거 특수 블록
-    Bomb,     //3x3 제거
-    Lightning, //가로,세로줄 전체 제거
+    RowClear,
+    ColClear,
+    Bomb,
+    Lightning,
 }
+
 public class Block : MonoBehaviour
 {
     public int x;
@@ -23,12 +21,10 @@ public class Block : MonoBehaviour
     public BlockType blockType;
     public SpriteRenderer spriteRenderer;
 
-    public bool isSpecial = false;  // 특수 블록 체크
-    public bool isRowClear = false; // true : 가로줄 , false : 세로줄
+    public bool isSpecial;
+    public bool isRowClear;
 
     private GridManager gridManager;
-
-
 
     void Start()
     {
@@ -41,17 +37,14 @@ public class Block : MonoBehaviour
         spriteRenderer.sprite = sprite;
 
         if (isSpecial)
-        {
             spriteRenderer.color = isRowClear ? Color.red : Color.cyan;
-        }
         else
-        {
             spriteRenderer.color = Color.white;
-        }
     }
 
     void OnMouseDown()
     {
+        if (GameManager.Instance != null && GameManager.Instance.isGameOver) return;
         gridManager.SelectBlock(this);
     }
 }

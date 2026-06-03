@@ -5,32 +5,44 @@ public class ScoreManager : MonoBehaviour
 {
     public static ScoreManager Instance;
 
-    public TextMeshProUGUI scoreText;  // 점수 텍스트
-    private int currentScore = 0;
+    public TextMeshProUGUI scoreText;
+    private int currentScore;
 
     void Awake()
     {
         if (Instance == null) Instance = this;
         else Destroy(gameObject);
     }
-    private void Start()
+
+    void Start()
     {
-        scoreText.text = $"Score: {currentScore} / {GameManager.Instance.goalScore}";
+        RefreshScoreUI();
     }
 
     public void AddScore(int amount)
     {
+        if (GameManager.Instance.isGameOver) return;
+
         currentScore += amount;
-        scoreText.text = $"Score: {currentScore} / {GameManager.Instance.goalScore}";
+        RefreshScoreUI();
+
+        if (currentScore >= GameManager.Instance.goalScore)
+            GameManager.Instance.EndGameClear();
     }
 
     public void ResetScore()
     {
         currentScore = 0;
-        scoreText.text = $"Score: {currentScore}";
+        RefreshScoreUI();
     }
-    public int GetScore()
+
+    public int GetScore() => currentScore;
+
+    public void RefreshUI() => RefreshScoreUI();
+
+    void RefreshScoreUI()
     {
-        return currentScore;
+        if (scoreText != null)
+            scoreText.text = $"Score: {currentScore} / {GameManager.Instance.goalScore}";
     }
 }

@@ -3,53 +3,52 @@ using UnityEngine;
 
 public class GameTimer : MonoBehaviour
 {
-    public float totalTime = 60f;                 // 총 제한 시간 (초)
-    public TextMeshProUGUI timerText;             // TMP 텍스트 UI
-    private float remainingTime;
-    private bool isRunning = false;
+    public static GameTimer Instance;
 
-    public System.Action OnTimeOver;              // 시간 종료 이벤트
+    public float totalTime = 60f;
+    public TextMeshProUGUI timerText;
+
+    private float remainingTime;
+    private bool isRunning;
+
+    void Awake()
+    {
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
+    }
 
     void Start()
     {
         StartTimer();
-
-        OnTimeOver = () =>
-        {
-            int finalScore = ScoreManager.Instance.GetScore();
-            
-            GameManager.Instance.isGameOver = true;
-
-            if (finalScore >= GameManager.Instance.goalScore)
-            {
-                GameManager.Instance.ShowGameClear(); // 목표 점수 도달 → 클리어
-            }
-            else
-            {
-                GameManager.Instance.ShowGameClear(); // 목표 미달 → 실패
-            }
-        };
     }
 
     void Update()
     {
-        if (!isRunning) return;
+        if (!isRunning || GameManager.Instance.isGameOver) return;
 
         remainingTime -= Time.deltaTime;
-        if (remainingTime < 0)
+        if (remainingTime <= 0f)
         {
-            remainingTime = 0;
+            remainingTime = 0f;
             isRunning = false;
-
-            OnTimeOver?.Invoke(); // 시간 종료 처리
+            OnTimeExpired();
         }
 
         UpdateTimerUI();
     }
 
+    void OnTimeExpired()
+    {
+        if (ScoreManager.Instance.GetScore() >= GameManager.Instance.goalScore)
+            GameManager.Instance.EndGameClear();
+        else
+            GameManager.Instance.EndGameFail();
+    }
+
     void UpdateTimerUI()
     {
-        timerText.text = $"Time: {Mathf.CeilToInt(remainingTime)}";
+        if (timerText != null)
+            timerText.text = $"Time: {Mathf.CeilToInt(remainingTime)}";
     }
 
     public void StartTimer()
@@ -62,5 +61,12 @@ public class GameTimer : MonoBehaviour
     public void StopTimer()
     {
         isRunning = false;
+    }
+
+    public void SetTotalTime(float seconds)
+    {
+        totalTime = seconds;
+        remainingTime = seconds;
+        UpdateTimerUI();
     }
 }

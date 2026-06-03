@@ -1,7 +1,6 @@
 ﻿using DG.Tweening;
 using System.Collections;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using UnityEngine;
 
 [System.Serializable]
@@ -10,109 +9,307 @@ public class BlockSprite
     public BlockType type;
     public Sprite sprite;
 }
+
 public class GridManager : MonoBehaviour
 {
     public int width = 8;
     public int height = 8;
     public float cellSize = 1.2f;
 
+    [Header("Level")]
+    public LevelData[] levels;
+    public int startLevelIndex;
+
+    [Header("Test (Inspector)")]
+    [Tooltip("켜면 항상 testMaskResourcePath 마스크만 사용 (levels·랜덤 무시)")]
+    public bool testModeLockMask = false;
+    [Tooltip("Resources 경로, 확장자 제외. 기본: Level01")]
+    public string testMaskResourcePath = "Masks/Mask_Level01";
+
     [Header("Prefab & Parent")]
-    public GameObject blockPrefab; // 하나의 블록 프리팹만 사용
+    public GameObject blockPrefab;
     public Transform blocksParent;
+    public BlockPool blockPool;
 
     [Header("블록 타입과 스프라이트 매핑")]
     public List<BlockSprite> blockSprites;
-    private Dictionary<BlockType, Sprite> spriteDict;
 
-    private GameObject[,] blocks;
-    private Block selectedBlock = null;
-    private bool isProcessing = false;
-    private int chainCount = 0;
+    GameObject[,] blocks;
+    bool[,] gridMask;
+    Dictionary<BlockType, Sprite> spriteDict;
 
-    private bool[,] gridMask;
+    [Header("특수 블록 생성 연출")]
+    [SerializeField] float refillFallDuration = 0.3f;
+    [SerializeField] float specialNormalHoldTime = 0.12f;
+    [SerializeField] float specialNormalVanishTime = 0.18f;
+    [SerializeField] float specialTransformTime = 0.22f;
 
-    // 일반 블록만 배열로 관리
-    BlockType[] normalTypes = new BlockType[]
+    Block selectedBlock;
+    bool isProcessing;
+    int chainCount;
+    Block lastMovedBlock;
+
+    MatchFinder matchFinder;
+    SpecialBlockHandler specialHandler;
+    BoardResolver boardResolver;
+
+    readonly BlockType[] normalTypes =
     {
         BlockType.Apple,
         BlockType.Banana,
         BlockType.Grape,
         BlockType.Orange
     };
+
+    public int ChainCount => chainCount;
+    public Block LastMovedBlock => lastMovedBlock;
+    public float RefillFallDuration => refillFallDuration;
+
     void Awake()
     {
         spriteDict = new Dictionary<BlockType, Sprite>();
         foreach (var entry in blockSprites)
-        {
             spriteDict[entry.type] = entry.sprite;
-        }
+
+        specialHandler = new SpecialBlockHandler(spriteDict);
+        boardResolver = GetComponent<BoardResolver>();
+        if (boardResolver == null)
+            boardResolver = gameObject.AddComponent<BoardResolver>();
     }
 
     void Start()
     {
-        blocks = new GameObject[width, height];
-        LoadRandomMask();    // 마스크 랜덤 설정
-        GenerateGrid();      // 그리드 생성
+        if (testModeLockMask)
+            LoadTestMask();
+        else if (levels != null && levels.Length > 0)
+            LoadLevel(levels[Mathf.Clamp(startLevelIndex, 0, levels.Length - 1)]);
+        else
+            LoadRandomMask();
+
+        matchFinder = new MatchFinder(width, height, GetBlock);
+        boardResolver.Initialize(this, matchFinder, specialHandler);
+        GenerateGrid();
+
+        ScoreManager.Instance?.RefreshUI();
+        GameTimer.Instance?.StartTimer();
     }
+
+    public void LoadLevel(LevelData level)
+    {
+        if (level == null) return;
+
+        if (!LoadMaskFromResources(level.maskResourcePath))
+            return;
+
+        GameManager.Instance.goalScore = level.goalScore;
+        if (GameTimer.Instance != null)
+            GameTimer.Instance.SetTotalTime(level.timeLimit);
+
+        Debug.Log($"[Level] {level.levelName} — {level.maskResourcePath}");
+    }
+
+    void LoadTestMask()
+    {
+        if (!LoadMaskFromResources(testMaskResourcePath))
+            return;
+
+        Debug.Log($"[Test] 고정 마스크: {testMaskResourcePath} (goal/time은 GameManager·GameTimer Inspector 값)");
+    }
+
     void LoadRandomMask()
     {
         string[] maskNames = {
             "Masks/Mask_Level01",
             "Masks/Mask_Level02",
             "Masks/Mask_Level03",
-            "Masks/Mask_Level04",
-            "Masks/Mask_Heart",
-            "Masks/Mask_Tree",
         };
 
-        int randomIndex = Random.Range(0, maskNames.Length);
-        string selectedName = maskNames[randomIndex];
+        string selectedName = maskNames[Random.Range(0, maskNames.Length)];
+        if (!LoadMaskFromResources(selectedName))
+            return;
 
-        TextAsset maskCsv = Resources.Load<TextAsset>(selectedName);
+        Debug.Log($"[Mask] 랜덤 선택: {selectedName}");
+    }
+
+    bool LoadMaskFromResources(string resourcePath)
+    {
+        TextAsset maskCsv = Resources.Load<TextAsset>(resourcePath);
         if (maskCsv == null)
         {
-            Debug.LogError($"마스크 파일을 찾을 수 없습니다: {selectedName}");
-            return;
+            Debug.LogError($"마스크 파일 없음: {resourcePath}");
+            return false;
         }
 
         gridMask = MaskLoader.LoadMaskFromCSV(maskCsv);
-
-        Debug.Log($"✅ 선택된 마스크: {selectedName}");
+        width = gridMask.GetLength(0);
+        height = gridMask.GetLength(1);
+        return true;
     }
+
     void GenerateGrid()
     {
-        int width = gridMask.GetLength(0);
-        int height = gridMask.GetLength(1);
-        blocks = new GameObject[width, height]; // 반드시 여기서 초기화
-
+        blocks = new GameObject[width, height];
         Vector2 offset = new Vector2((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f);
         float yOffset = height * 0.1f;
+
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                // 마스킹된 칸이면 생성 스킵
-                if (gridMask != null && !gridMask[x, y])
-                    continue;
+                if (gridMask != null && !gridMask[x, y]) continue;
 
                 Vector3 spawnPos = new Vector3(x * cellSize, y * cellSize, 0f) - (Vector3)offset + Vector3.up * yOffset;
-
-                GameObject blockObj = Instantiate(blockPrefab, spawnPos, Quaternion.identity, blocksParent);
-                blockObj.name = $"Block_{x}_{y}";
-
-                Block block = blockObj.GetComponent<Block>();
-                block.x = x;
-                block.y = y;
-
-                BlockType selectedType = GetNonMatchingType(x, y);
-                block.SetType(selectedType, spriteDict[selectedType]);
-
-                blocks[x, y] = blockObj;
+                SpawnBlockAt(x, y, spawnPos, GetNonMatchingType(x, y));
             }
         }
     }
 
-    // 특정 위치에 블록을 배치할 때 3개 이상 연속되지 않도록 안전한 타입을 고름
+    Vector3 CellToWorld(int x, int y)
+    {
+        Vector3 gridOffset = new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f);
+        float yOffset = height * 0.1f;
+        return new Vector3(x * cellSize, y * cellSize, 0f) - gridOffset + Vector3.up * yOffset;
+    }
+
+    public void RegisterBlock(Block block)
+    {
+        if (block == null) return;
+        blocks[block.x, block.y] = block.gameObject;
+    }
+
+    /// <summary>
+    /// 일반 리필이 끝난 뒤, 특수 생성 좌표의 일반 블록만 제거 연출 후 같은 칸에서 특수 블록으로 전환
+    /// </summary>
+    public IEnumerator PlaySpecialSpawnTransition(SpecialSpawnPlan plan)
+    {
+        int x = plan.spawnX;
+        int y = plan.spawnY;
+
+        if (gridMask != null && !gridMask[x, y])
+            yield break;
+
+        Block normal = GetBlock(x, y);
+        if (normal == null)
+        {
+            Debug.LogWarning($"[GridManager] 특수 전환 칸 ({x},{y})에 리필 블록 없음");
+            yield break;
+        }
+
+        SnapBlockToCell(normal);
+        yield return new WaitForSeconds(specialNormalHoldTime);
+
+        PlayBlockVanishAnimation(normal);
+        yield return new WaitForSeconds(specialNormalVanishTime);
+
+        TransformBlockToSpecial(normal, plan.blockType, plan.isRowClear);
+        yield return new WaitForSeconds(specialTransformTime);
+    }
+
+    void TransformBlockToSpecial(Block block, BlockType type, bool isRowClear)
+    {
+        block.transform.DOKill();
+        if (block.spriteRenderer != null)
+            block.spriteRenderer.DOKill();
+
+        specialHandler.ApplySpecialToBlock(block, type, isRowClear);
+
+        float targetScale = (type == BlockType.Bomb || type == BlockType.Lightning)
+            ? 1f
+            : 0.5f;
+
+        block.transform.localScale = Vector3.zero;
+        block.transform.DOScale(targetScale, specialTransformTime)
+            .SetEase(Ease.OutBack)
+            .SetLink(block.gameObject);
+    }
+
+    Block SpawnBlockWithRefillFall(int x, int y, BlockType type)
+    {
+        Vector3 spawnPos = CellToWorld(x, y + 2);
+        GameObject blockObj = SpawnBlockAt(x, y, spawnPos, type);
+        if (blockObj == null) return null;
+
+        blockObj.GetComponent<Block>().transform
+            .DOMove(CellToWorld(x, y), refillFallDuration)
+            .SetEase(Ease.OutQuad)
+            .SetLink(blockObj);
+
+        return blockObj.GetComponent<Block>();
+    }
+
+    void PlayBlockVanishAnimation(Block block)
+    {
+        if (block == null) return;
+
+        block.transform.DOKill();
+        block.transform.DOScale(0f, specialNormalVanishTime)
+            .SetEase(Ease.InBack)
+            .SetLink(block.gameObject);
+
+        if (block.spriteRenderer != null)
+        {
+            block.spriteRenderer.DOKill();
+            block.spriteRenderer.DOFade(0f, specialNormalVanishTime)
+                .SetLink(block.gameObject);
+        }
+    }
+
+    /// <summary>그리드에는 없지만 같은 칸에 남은 고아 오브젝트 제거</summary>
+    void PurgeStrayBlockAtCell(int x, int y)
+    {
+        if (blocksParent == null) return;
+
+        Vector3 world = CellToWorld(x, y);
+        float radius = cellSize * 0.35f;
+
+        for (int i = blocksParent.childCount - 1; i >= 0; i--)
+        {
+            Transform child = blocksParent.GetChild(i);
+            if (Vector3.Distance(child.position, world) > radius) continue;
+
+            Block b = child.GetComponent<Block>();
+            if (b == null) continue;
+            if (blocks[x, y] != null && blocks[x, y] == child.gameObject) continue;
+
+            child.transform.DOKill();
+            if (blockPool != null)
+                blockPool.Release(child.gameObject);
+            else
+                Destroy(child.gameObject);
+        }
+    }
+
+    void SnapBlockToCell(Block block)
+    {
+        if (block == null) return;
+        block.transform.DOKill();
+        block.transform.position = CellToWorld(block.x, block.y);
+        blocks[block.x, block.y] = block.gameObject;
+    }
+
+    GameObject SpawnBlockAt(int x, int y, Vector3 position, BlockType type)
+    {
+        if (blocks[x, y] != null)
+        {
+            Debug.LogWarning($"[GridManager] ({x},{y}) 칸이 이미 점유됨 — 스폰 스킵");
+            return blocks[x, y];
+        }
+
+        GameObject blockObj = blockPool != null
+            ? blockPool.Get(position, blocksParent)
+            : Instantiate(blockPrefab, position, Quaternion.identity, blocksParent);
+
+        blockObj.name = $"Block_{x}_{y}";
+        Block block = blockObj.GetComponent<Block>();
+        block.x = x;
+        block.y = y;
+        block.isSpecial = false;
+        block.isRowClear = false;
+        block.SetType(type, spriteDict[type]);
+        blocks[x, y] = blockObj;
+        return blockObj;
+    }
+
     BlockType GetNonMatchingType(int x, int y)
     {
         List<BlockType> possibleTypes = new List<BlockType>(normalTypes);
@@ -122,9 +319,7 @@ public class GridManager : MonoBehaviour
             Block left1 = GetBlock(x - 1, y);
             Block left2 = GetBlock(x - 2, y);
             if (left1 != null && left2 != null && left1.blockType == left2.blockType)
-            {
                 possibleTypes.Remove(left1.blockType);
-            }
         }
 
         if (y >= 2)
@@ -132,15 +327,12 @@ public class GridManager : MonoBehaviour
             Block down1 = GetBlock(x, y - 1);
             Block down2 = GetBlock(x, y - 2);
             if (down1 != null && down2 != null && down1.blockType == down2.blockType)
-            {
                 possibleTypes.Remove(down1.blockType);
-            }
         }
 
         return possibleTypes[Random.Range(0, possibleTypes.Count)];
     }
 
-    // 블록 클릭 처리
     public void SelectBlock(Block block)
     {
         if (GameManager.Instance.isGameOver || isProcessing) return;
@@ -148,69 +340,49 @@ public class GridManager : MonoBehaviour
         if (selectedBlock == null)
         {
             selectedBlock = block;
+            HighlightBlock(block, selected: true);
+        }
+        else if (AreAdjacent(selectedBlock, block))
+        {
+            isProcessing = true;
+            HighlightBlock(selectedBlock, selected: false);
 
-            // 시각적 강조
-            if (block.blockType == BlockType.Bomb || block.blockType == BlockType.Lightning)
-                block.transform.DOScale(1.25f, 0.1f).SetEase(Ease.OutQuad);
+            if (selectedBlock.isSpecial)
+            {
+                lastMovedBlock = selectedBlock;
+                SwapAndActivateSpecialBlock(selectedBlock, block);
+            }
+            else if (block.isSpecial)
+            {
+                lastMovedBlock = block;
+                SwapAndActivateSpecialBlock(block, selectedBlock);
+            }
             else
-                block.transform.DOScale(0.65f, 0.1f).SetEase(Ease.OutQuad);
+            {
+                lastMovedBlock = block;
+                SwapBlocks(selectedBlock, block);
+            }
+
+            selectedBlock = null;
         }
         else
         {
-            if (AreAdjacent(selectedBlock, block))
-            {
-                isProcessing = true;
-
-                // 이전 선택 해제
-                if (selectedBlock.blockType == BlockType.Bomb || selectedBlock.blockType == BlockType.Lightning)
-                    selectedBlock.transform.DOScale(1f, 0.1f);
-                else
-                    selectedBlock.transform.DOScale(0.5f, 0.1f);
-
-                // 특수 블록 클릭된 경우 처리
-                if (selectedBlock.isSpecial)
-                {
-                    SwapAndActivateSpecialBlock(selectedBlock, block);
-                    selectedBlock = null;
-                    return;
-                }
-                else if (block.isSpecial)
-                {
-                    SwapAndActivateSpecialBlock(block, selectedBlock);
-                    selectedBlock = null;
-                    return;
-                }
-                else
-                {
-                    SwapBlocks(selectedBlock, block);
-                    DOVirtual.DelayedCall(0.35f, () => isProcessing = false); // 잠금 해제
-                }
-
-                selectedBlock = null;
-            }
-            else
-            {
-                // 이전 선택 블록 해제 애니메이션
-                if (selectedBlock.blockType == BlockType.Bomb || selectedBlock.blockType == BlockType.Lightning)
-                    selectedBlock.transform.DOScale(1f, 0.1f);
-                else
-                    selectedBlock.transform.DOScale(0.5f, 0.1f);
-
-                // 새 선택 블록 강조
-                selectedBlock = block;
-                if (block.blockType == BlockType.Bomb || block.blockType == BlockType.Lightning)
-                    block.transform.DOScale(1.25f, 0.1f);
-                else
-                    block.transform.DOScale(0.65f, 0.1f);
-            }
+            HighlightBlock(selectedBlock, selected: false);
+            selectedBlock = block;
+            HighlightBlock(block, selected: true);
         }
     }
 
-    bool AreAdjacent(Block a, Block b)
+    void HighlightBlock(Block block, bool selected)
     {
-        int dx = Mathf.Abs(a.x - b.x);
-        int dy = Mathf.Abs(a.y - b.y);
-        return (dx + dy) == 1;
+        bool big = block.blockType == BlockType.Bomb || block.blockType == BlockType.Lightning;
+        float scale = selected ? (big ? 1.25f : 0.65f) : (big ? 1f : 0.5f);
+        block.transform.DOScale(scale, 0.1f).SetEase(Ease.OutQuad).SetLink(block.gameObject);
+    }
+
+    static bool AreAdjacent(Block a, Block b)
+    {
+        return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y) == 1;
     }
 
     void SwapBlocks(Block a, Block b)
@@ -221,293 +393,27 @@ public class GridManager : MonoBehaviour
         a.transform.DOMove(posB, 0.2f).SetLink(a.gameObject);
         b.transform.DOMove(posA, 0.2f).SetLink(b.gameObject);
 
+        SwapGridRefs(a, b);
+
+        DOVirtual.DelayedCall(0.25f, () =>
+        {
+            if (!matchFinder.IsBlockInMatch(a) && !matchFinder.IsBlockInMatch(b))
+                SwapBack(a, b);
+            else
+                boardResolver.StartCascade();
+        });
+    }
+
+    void SwapGridRefs(Block a, Block b)
+    {
         blocks[a.x, a.y] = b.gameObject;
         blocks[b.x, b.y] = a.gameObject;
 
-        int tempX = a.x;
-        int tempY = a.y;
-        a.x = b.x;
-        a.y = b.y;
-        b.x = tempX;
-        b.y = tempY;
-
-        // DOTween이 끝난 후 검사 실행
-        DOVirtual.DelayedCall(0.25f, () =>
-        {
-            if (!IsBlockInMatch(a) && !IsBlockInMatch(b))
-            {
-                SwapBack(a, b);
-            }
-            else
-            {
-                HandleMatches();
-            }
-        });
+        int tx = a.x, ty = a.y;
+        a.x = b.x; a.y = b.y;
+        b.x = tx; b.y = ty;
     }
 
-    // 현재 그리드에서 매칭된 블록들을 모두 찾아 반환
-    public List<Block> FindAllMatches()
-    {
-        List<Block> matchedBlocks = new List<Block>();
-
-        // 가로 방향 검사
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width - 2; x++)
-            {
-                Block b1 = GetBlock(x, y);
-                Block b2 = GetBlock(x + 1, y);
-                Block b3 = GetBlock(x + 2, y);
-
-                if (b1 != null && b2 != null && b3 != null)
-                {
-                    if (b1.blockType == b2.blockType && b2.blockType == b3.blockType)
-                    {
-                        if (!matchedBlocks.Contains(b1)) matchedBlocks.Add(b1);
-                        if (!matchedBlocks.Contains(b2)) matchedBlocks.Add(b2);
-                        if (!matchedBlocks.Contains(b3)) matchedBlocks.Add(b3);
-                    }
-                }
-            }
-        }
-
-        // 세로 방향 검사
-        for (int x = 0; x < width; x++)
-        {
-            for (int y = 0; y < height - 2; y++)
-            {
-                Block b1 = GetBlock(x, y);
-                Block b2 = GetBlock(x, y + 1);
-                Block b3 = GetBlock(x, y + 2);
-
-                if (b1 != null && b2 != null && b3 != null)
-                {
-                    if (b1.blockType == b2.blockType && b2.blockType == b3.blockType)
-                    {
-                        if (!matchedBlocks.Contains(b1)) matchedBlocks.Add(b1);
-                        if (!matchedBlocks.Contains(b2)) matchedBlocks.Add(b2);
-                        if (!matchedBlocks.Contains(b3)) matchedBlocks.Add(b3);
-                    }
-                }
-            }
-        }
-
-        return matchedBlocks;
-    }
-
-    // 그리드에서 (x, y) 위치에 있는 Block 가져오기
-    Block GetBlock(int x, int y)
-    {
-        if (x < 0 || x >= width || y < 0 || y >= height) return null;
-        return blocks[x, y]?.GetComponent<Block>();
-    }
-
-    public void RemoveMatches()
-    {
-        List<Block> matchedBlocks = FindAllMatches();
-
-        foreach (Block block in matchedBlocks)
-        {
-            // 그리드에서 제거
-            blocks[block.x, block.y] = null;
-
-            // 실제 오브젝트 제거
-            Destroy(block.gameObject);
-        }
-
-        Debug.Log($"Removed {matchedBlocks.Count} matched blocks.");
-
-        // 블록 제거 후 빈 칸 채우기
-        FillEmptySpaces();
-    }
-
-    // 특정 x 좌표 열에서 블록을 아래로 내림
-    void CollapseColumn(int x)
-    {
-        for (int y = 1; y < height; y++)
-        {
-            if (blocks[x, y] != null && blocks[x, y - 1] == null)
-            {
-                int targetY = y - 1;
-
-                // 마스크가 true인 자리만 이동 대상으로 허용
-                while (targetY > 0 && (blocks[x, targetY - 1] == null || (gridMask != null && !gridMask[x, targetY])))
-                    targetY--;
-
-                // 마스킹된 위치면 이동하지 않음
-                if (gridMask != null && !gridMask[x, targetY])
-                    continue;
-
-                blocks[x, targetY] = blocks[x, y];
-                blocks[x, y] = null;
-
-                Block block = blocks[x, targetY].GetComponent<Block>();
-                block.y = targetY;
-
-                Vector3 targetPos = new Vector3(x * cellSize, targetY * cellSize, 0f)
-                                  - new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f)
-                                  + Vector3.up * (height * 0.1f);
-
-                block.transform.DOMove(targetPos, 0.2f).SetLink(block.gameObject);
-            }
-        }
-    }
-
-    public void FillEmptySpaces()
-    {
-        for (int x = 0; x < width; x++)
-        {
-            CollapseColumn(x);
-
-            for (int y = 0; y < height; y++)
-            {
-                if (gridMask != null && !gridMask[x, y]) continue;
-
-                if (blocks[x, y] == null)
-                {
-                    BlockType randType = normalTypes[Random.Range(0, normalTypes.Length)];
-
-                    Vector3 spawnPos = new Vector3(x * cellSize, (y + 2) * cellSize, 0f)
-                                     - new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f)
-                                     + Vector3.up * (height * 0.1f);
-
-                    GameObject blockObj = Instantiate(blockPrefab, spawnPos, Quaternion.identity, blocksParent);
-                    blockObj.name = $"Block_{x}_{y}";
-
-                    Block block = blockObj.GetComponent<Block>();
-                    block.x = x;
-                    block.y = y;
-                    block.SetType(randType, spriteDict[randType]);
-
-                    blocks[x, y] = blockObj;
-
-                    Vector3 targetPos = new Vector3(x * cellSize, y * cellSize, 0f)
-                                      - new Vector3((width - 1) * cellSize / 2f, (height - 1) * cellSize / 2f, 0f)
-                                      + Vector3.up * (height * 0.1f);
-
-                    block.transform.DOMove(targetPos, 0.3f).SetEase(Ease.OutQuad).SetLink(block.gameObject);
-                }
-            }
-        }
-    }
-
-    // 코루틴으로 자연스럽게 이동 (애니메이션)
-    IEnumerator MoveToPosition(Transform obj, Vector3 target, float time)
-    {
-        if (obj == null) yield break;
-
-        Vector3 start = obj.position;
-        float t = 0f;
-
-        while (t < 1f)
-        {
-            if (obj == null) yield break;
-            t += Time.deltaTime / time;
-            obj.position = Vector3.Lerp(start, target, t);
-            yield return null;
-        }
-
-        // 마지막에 다시 null 확인
-        if (obj != null)
-            obj.position = target;
-    }
-
-    // 매칭 → 제거 → 채우기 → 반복
-    void HandleMatches()
-    {
-        List<Block> matches = FindAllMatches();
-
-        if (matches.Count == 0)
-        {
-            chainCount = 0; // 연쇄 종료 → 초기화
-            isProcessing = false;
-            return;
-        }
-
-        chainCount++; // 연쇄 카운트 증가
-
-     
-        // 특수 블록 생성 시도
-        CreateSpecialBlock(matches,chainCount);
-
-        // 점수 계산 (예: 10점 × 블록 수)
-        ScoreManager.Instance.AddScore(matches.Count * 10);
-        // 매치 성공 SFX
-        if (matches.Count > 0)
-            SoundManager.Instance.PlaySFX(SoundManager.Instance.matchSFX);
-
-        foreach (Block block in matches)
-        {
-            blocks[block.x, block.y] = null;
-            
-            Destroy(block.gameObject);
-        }
-
-        DOVirtual.DelayedCall(0.25f, () =>
-        {
-            FillEmptySpaces();
-
-            // 이 부분이 핵심
-            DOVirtual.DelayedCall(0.35f, () =>
-            {
-                // 매칭이 또 생기면 연쇄 계속
-                if (FindAllMatches().Count > 0)
-                {
-                    HandleMatches();
-                }
-                else
-                {
-                    // 연쇄 종료 시 입력 해제
-                    Debug.Log("연쇄 끝 - 입력 가능");
-                    isProcessing = false;
-                }
-            });
-        });
-    }
-
-    // 해당 블록이 포함된 매칭이 있는지 확인
-    bool IsBlockInMatch(Block block)
-    {
-        List<Block> horizontal = new List<Block> { block };
-        List<Block> vertical = new List<Block> { block };
-
-        // 좌우 검사
-        int x = block.x;
-        int y = block.y;
-        BlockType type = block.blockType;
-
-        // 왼쪽
-        int i = x - 1;
-        while (i >= 0 && GetBlock(i, y)?.blockType == type)
-        {
-            horizontal.Add(GetBlock(i, y));
-            i--;
-        }
-        // 오른쪽
-        i = x + 1;
-        while (i < width && GetBlock(i, y)?.blockType == type)
-        {
-            horizontal.Add(GetBlock(i, y));
-            i++;
-        }
-
-        // 아래쪽
-        int j = y - 1;
-        while (j >= 0 && GetBlock(x, j)?.blockType == type)
-        {
-            vertical.Add(GetBlock(x, j));
-            j--;
-        }
-        // 위쪽
-        j = y + 1;
-        while (j < height && GetBlock(x, j)?.blockType == type)
-        {
-            vertical.Add(GetBlock(x, j));
-            j++;
-        }
-
-        return horizontal.Count >= 3 || vertical.Count >= 3;
-    }
     void SwapBack(Block a, Block b)
     {
         Vector3 posA = a.transform.position;
@@ -518,228 +424,159 @@ public class GridManager : MonoBehaviour
 
         DOVirtual.DelayedCall(0.25f, () =>
         {
-            blocks[a.x, a.y] = b.gameObject;
-            blocks[b.x, b.y] = a.gameObject;
-
-            int tempX = a.x;
-            int tempY = a.y;
-            a.x = b.x;
-            a.y = b.y;
-            b.x = tempX;
-            b.y = tempY;
+            SwapGridRefs(a, b);
+            isProcessing = false;
         });
     }
 
-    void CreateSpecialBlock(List<Block> matched, int chainCount)
+    public Block GetBlock(int x, int y)
     {
-        if (matched.Count < 4) return;
-
-        Block specialBlock = matched[Random.Range(0, matched.Count)];
-
-        // 💣 폭탄 조건
-        if (matched.Count >= 5)
-        {
-            Block bombBlock = matched[Random.Range(0, matched.Count)];
-            bombBlock.blockType = BlockType.Bomb;
-            bombBlock.spriteRenderer.sprite = spriteDict[bombBlock.blockType];
-            bombBlock.isSpecial = true;
-            bombBlock.transform.localScale = Vector3.one;
-            matched.Remove(bombBlock);
-            blocks[bombBlock.x, bombBlock.y] = bombBlock.gameObject;
-
-            bombBlock.spriteRenderer.DOFade(0.5f, 0.5f)
-                .SetLoops(-1, LoopType.Yoyo)
-                .SetEase(Ease.InOutSine)
-                .SetLink(bombBlock.gameObject);
-        }
-
-        // ⚡ 번개 조건 (남은 matched 안에서)
-        if (chainCount >= 3 && matched.Count > 0)
-        {
-            Block lightningBlock = matched[Random.Range(0, matched.Count)];
-            lightningBlock.blockType = BlockType.Lightning;
-            lightningBlock.spriteRenderer.sprite = spriteDict[lightningBlock.blockType];
-            lightningBlock.isSpecial = true;
-            lightningBlock.transform.localScale = Vector3.one;
-            matched.Remove(lightningBlock);
-            blocks[lightningBlock.x, lightningBlock.y] = lightningBlock.gameObject;
-
-            lightningBlock.spriteRenderer.DOFade(0.5f, 0.5f)
-                .SetLoops(-1, LoopType.Yoyo)
-                .SetEase(Ease.InOutSine)
-                .SetLink(lightningBlock.gameObject);
-        }
-
-
-        // 기본 Row/Col 특수 블록 생성
-        specialBlock.isSpecial = true;
-        bool horizontal = Random.Range(0, 2) == 0;
-        specialBlock.isRowClear = horizontal;
-        specialBlock.blockType = horizontal ? BlockType.RowClear : BlockType.ColClear;
-        specialBlock.spriteRenderer.sprite = spriteDict[specialBlock.blockType];
-
-        matched.Remove(specialBlock);
-        blocks[specialBlock.x, specialBlock.y] = specialBlock.gameObject;
-
-        specialBlock.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
-
-        specialBlock.spriteRenderer.DOFade(0.5f, 0.5f)
-            .SetLoops(-1, LoopType.Yoyo)
-            .SetEase(Ease.InOutSine)
-            .SetLink(specialBlock.gameObject);
+        if (x < 0 || x >= width || y < 0 || y >= height) return null;
+        return blocks[x, y]?.GetComponent<Block>();
     }
 
-    // 특수 블록(가로줄 또는 세로줄 제거) 발동 시 실행되는 코루틴
-    // 중심 블록을 기준으로 양옆 블록들을 순차적으로 제거하는 연출 포함
-    IEnumerator ActivateSpecialBlockSequential(Block block)
+    public void ClearBlockAt(int x, int y)
     {
-        int x = block.x;
-        int y = block.y;
+        if (blocks[x, y] == null) return;
+        GameObject obj = blocks[x, y];
+        blocks[x, y] = null;
 
-        // 특수 블록 사운드
-        SoundManager.Instance.PlaySFX(SoundManager.Instance.specialMatchSFX);
-        List<Block> toRemove = new List<Block>();
-        // 블록 타입이 폭탄일때
-        if (block.blockType == BlockType.Bomb)
-        {
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                for (int dy = -1; dy <= 1; dy++)
-                {
-                    int nx = block.x + dx;
-                    int ny = block.y + dy;
-
-                    if (IsInsideGrid(nx, ny))
-                    {
-                        Block b = GetBlock(nx, ny);
-                        if (b != null) toRemove.Add(b);
-                    }
-                }
-            }
-
-            // 자신도 제거 대상에 포함
-            if (!toRemove.Contains(block))
-                toRemove.Add(block);
-
-            foreach (Block b in toRemove)
-            {
-                blocks[b.x, b.y] = null;
-                Destroy(b.gameObject);
-                ScoreManager.Instance.AddScore(10);
-                yield return new WaitForSeconds(0.05f);
-            }
-
-            yield return new WaitForSeconds(0.2f);
-
-            FillEmptySpaces();
-
-            DOVirtual.DelayedCall(0.35f, () =>
-            {
-                if (FindAllMatches().Count > 0)
-                    HandleMatches();
-                else
-                    isProcessing = false;
-            });
-
-            yield break;
-        }
-        // 블록 타입이 라이트닝일때
-        if (block.blockType == BlockType.Lightning)
-        {
-            // 세로 줄 제거 (x 고정, y 전체)
-            for (int j = 0; j < height; j++)
-            {
-                Block b = GetBlock(block.x, j);
-                if (b != null) toRemove.Add(b);
-            }
-
-            // 가로 줄 제거 (y 고정, x 전체)
-            for (int i = 0; i < width; i++)
-            {
-                Block b = GetBlock(i, block.y);
-                if (b != null && !toRemove.Contains(b)) // 중복 방지
-                    toRemove.Add(b);
-            }
-
-            // 자기 자신도 포함
-            if (!toRemove.Contains(block))
-                toRemove.Add(block);
-
-            foreach (Block b in toRemove)
-            {
-                blocks[b.x, b.y] = null;
-                Destroy(b.gameObject);
-                ScoreManager.Instance.AddScore(10);
-                yield return new WaitForSeconds(0.03f);
-            }
-
-            yield return new WaitForSeconds(0.2f);
-
-            FillEmptySpaces();
-
-            DOVirtual.DelayedCall(0.35f, () =>
-            {
-                if (FindAllMatches().Count > 0)
-                    HandleMatches();
-                else
-                    isProcessing = false;
-            });
-
-            yield break;
-        }
-
-        if (block.isRowClear)
-        {
-            for (int i = 0; i < width; i++)
-            {
-                Block b = GetBlock(i, y);
-                if (b != null) toRemove.Add(b);
-            }
-            // 중심 블록 기준으로 가까운 순으로 정렬 (좌↔우 순차 제거를 위함)
-            toRemove.Sort((a, b) => Mathf.Abs(a.x - x).CompareTo(Mathf.Abs(b.x - x)));
-        }
+        if (blockPool != null)
+            blockPool.Release(obj);
         else
+            Destroy(obj);
+    }
+
+    public void FillEmptySpaces()
+    {
+        for (int x = 0; x < width; x++)
+            CollapseColumn(x);
+
+        for (int x = 0; x < width; x++)
         {
-            // 세로줄 수집
-            for (int j = 0; j < height; j++)
+            for (int y = 0; y < height; y++)
             {
-                Block b = GetBlock(x, j);
-                if (b != null) toRemove.Add(b);
+                if (gridMask != null && !gridMask[x, y]) continue;
+                if (blocks[x, y] != null) continue;
+
+                BlockType randType = normalTypes[Random.Range(0, normalTypes.Length)];
+                SpawnBlockWithRefillFall(x, y, randType);
             }
-            // 중심 블록 기준으로 가까운 순으로 정렬 (상↕하 순차 제거)
-            toRemove.Sort((a, b) => Mathf.Abs(a.y - y).CompareTo(Mathf.Abs(b.y - y)));
+        }
+    }
+
+    /// <summary>열 전체를 아래(y=0)로 압축. 기존 로직은 점유 칸을 덮어써 고아 블록이 생길 수 있었음.</summary>
+    void CollapseColumn(int x)
+    {
+        var columnObjects = new List<GameObject>();
+
+        for (int y = 0; y < height; y++)
+        {
+            if (gridMask != null && !gridMask[x, y]) continue;
+            if (blocks[x, y] == null) continue;
+
+            columnObjects.Add(blocks[x, y]);
+            blocks[x, y] = null;
         }
 
-        // 특수 블록 본인도 명확하게 포함
-        if (!toRemove.Contains(block))
-            toRemove.Add(block);
-
-        foreach (Block b in toRemove)
+        int index = 0;
+        for (int y = 0; y < height; y++)
         {
-            blocks[b.x, b.y] = null;
-            Destroy(b.gameObject);
-            ScoreManager.Instance.AddScore(10);
+            if (gridMask != null && !gridMask[x, y]) continue;
+            if (index >= columnObjects.Count) break;
 
-            yield return new WaitForSeconds(0.05f); // 간격 조절 가능
+            GameObject obj = columnObjects[index++];
+            blocks[x, y] = obj;
+
+            Block block = obj.GetComponent<Block>();
+            if (block.x != x || block.y != y)
+            {
+                block.x = x;
+                block.y = y;
+                block.transform.DOMove(CellToWorld(x, y), 0.2f).SetLink(obj);
+            }
+        }
+    }
+
+    public void IncrementChainCount() => chainCount++;
+    public void ResetChainCount() => chainCount = 0;
+    public void SetProcessing(bool value) => isProcessing = value;
+
+    public bool IsInsideGrid(int x, int y) => x >= 0 && x < width && y >= 0 && y < height;
+
+    public void CheckDeadlockAndShuffle()
+    {
+        if (HasPossibleMove()) return;
+        Debug.Log("[GridManager] 가능한 수 없음 — 셔플");
+        StartCoroutine(ShuffleBoardRoutine());
+    }
+
+    bool HasPossibleMove()
+    {
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                if (gridMask != null && !gridMask[x, y]) continue;
+                Block a = GetBlock(x, y);
+                if (a == null || a.isSpecial) continue;
+
+                if (TrySwapWouldMatch(a, GetBlock(x + 1, y))) return true;
+                if (TrySwapWouldMatch(a, GetBlock(x, y + 1))) return true;
+            }
+        }
+        return false;
+    }
+
+    bool TrySwapWouldMatch(Block a, Block b)
+    {
+        if (a == null || b == null) return false;
+        SwapTypesInPlace(a, b);
+        bool match = matchFinder.IsBlockInMatch(a) || matchFinder.IsBlockInMatch(b);
+        SwapTypesInPlace(a, b);
+        return match;
+    }
+
+    static void SwapTypesInPlace(Block a, Block b)
+    {
+        BlockType t = a.blockType;
+        a.blockType = b.blockType;
+        b.blockType = t;
+    }
+
+    IEnumerator ShuffleBoardRoutine()
+    {
+        isProcessing = true;
+        var cells = new List<Block>();
+        for (int x = 0; x < width; x++)
+        for (int y = 0; y < height; y++)
+        {
+            if (gridMask != null && !gridMask[x, y]) continue;
+            Block b = GetBlock(x, y);
+            if (b != null && !b.isSpecial) cells.Add(b);
+        }
+
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            for (int i = cells.Count - 1; i > 0; i--)
+            {
+                int j = Random.Range(0, i + 1);
+                SwapTypesInPlace(cells[i], cells[j]);
+                var tmpSprite = cells[i].spriteRenderer.sprite;
+                cells[i].spriteRenderer.sprite = cells[j].spriteRenderer.sprite;
+                cells[j].spriteRenderer.sprite = tmpSprite;
+            }
+
+            if (matchFinder.FindAllMatches().Count == 0 && HasPossibleMove())
+            {
+                foreach (Block b in cells)
+                    b.SetType(b.blockType, spriteDict[b.blockType]);
+                break;
+            }
         }
 
         yield return new WaitForSeconds(0.2f);
-
-        // 빈칸 채우기 후 연쇄 매칭 여부 확인
-        FillEmptySpaces();
-        DOVirtual.DelayedCall(0.35f, () =>
-        {
-            if (FindAllMatches().Count > 0)
-            {
-                // 연쇄 발생 → 재귀 호출
-                HandleMatches();
-            }
-            else
-            {
-                // 연쇄 종료 → 입력 가능 상태로 복귀
-                isProcessing = false;
-            }
-        });
+        isProcessing = false;
     }
 
     void SwapAndActivateSpecialBlock(Block special, Block other)
@@ -747,34 +584,79 @@ public class GridManager : MonoBehaviour
         Vector3 specialTarget = other.transform.position;
         Vector3 otherTarget = special.transform.position;
 
-        // 좌표 스왑
-        int tempX = special.x;
-        int tempY = special.y;
+        int tx = special.x, ty = special.y;
+        special.x = other.x; special.y = other.y;
+        other.x = tx; other.y = ty;
 
-        special.x = other.x;
-        special.y = other.y;
-        other.x = tempX;
-        other.y = tempY;
-
-        // 배열 갱신
         blocks[special.x, special.y] = special.gameObject;
         blocks[other.x, other.y] = other.gameObject;
 
-        // DOTween 이동
         special.transform.DOMove(specialTarget, 0.2f).SetLink(special.gameObject);
         other.transform.DOMove(otherTarget, 0.2f).SetLink(other.gameObject);
 
-        // DOTween 끝나고 발동
         DOVirtual.DelayedCall(0.25f, () =>
         {
-            // ✅ 실제 파괴 전 배열에서 제거
-            blocks[special.x, special.y] = null;
-
+            SnapBlockToCell(special);
+            SnapBlockToCell(other);
             StartCoroutine(ActivateSpecialBlockSequential(special));
         });
     }
-    public bool IsInsideGrid(int x, int y)
+
+    IEnumerator ActivateSpecialBlockSequential(Block block)
     {
-        return x >= 0 && x < width && y >= 0 && y < height;
+        SoundManager.Instance.PlaySFX(SoundManager.Instance.specialMatchSFX);
+        var toRemove = new List<Block>();
+
+        if (block.blockType == BlockType.Bomb)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                if (!IsInsideGrid(block.x + dx, block.y + dy)) continue;
+                Block b = GetBlock(block.x + dx, block.y + dy);
+                if (b != null) toRemove.Add(b);
+            }
+        }
+        else if (block.blockType == BlockType.Lightning)
+        {
+            for (int j = 0; j < height; j++)
+            {
+                Block b = GetBlock(block.x, j);
+                if (b != null) toRemove.Add(b);
+            }
+            for (int i = 0; i < width; i++)
+            {
+                Block b = GetBlock(i, block.y);
+                if (b != null && !toRemove.Contains(b)) toRemove.Add(b);
+            }
+        }
+        else if (block.isRowClear)
+        {
+            for (int i = 0; i < width; i++)
+            {
+                Block b = GetBlock(i, block.y);
+                if (b != null) toRemove.Add(b);
+            }
+            toRemove.Sort((a, b) => Mathf.Abs(a.x - block.x).CompareTo(Mathf.Abs(b.x - block.x)));
+        }
+        else
+        {
+            for (int j = 0; j < height; j++)
+            {
+                Block b = GetBlock(block.x, j);
+                if (b != null) toRemove.Add(b);
+            }
+            toRemove.Sort((a, b) => Mathf.Abs(a.y - block.y).CompareTo(Mathf.Abs(b.y - block.y)));
+        }
+
+        foreach (Block b in toRemove)
+        {
+            ClearBlockAt(b.x, b.y);
+            ScoreManager.Instance.AddScore(10);
+            yield return new WaitForSeconds(0.05f);
+        }
+
+        FillEmptySpaces();
+        boardResolver.ContinueAfterSpecial();
     }
 }
