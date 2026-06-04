@@ -6,23 +6,7 @@ Unity 6 기반 3매치 퍼즐. CSV 마스크 보드, 특수 블록, 연쇄 콤�
 
 ## 플레이 영상
 
-<!-- GIF 또는 영상 링크 -->
-<!-- 예: ![Gameplay](./Docs/gameplay.gif) -->
-<!-- 예: [YouTube](https://...) -->
-
-*(영상/GIF 추가 예정)*
-
----
-
-## 스크린샷
-
-<!-- 예: ![Main](./Docs/screenshot_main.png) -->
-
-| | |
-|---|---|
-| 메인 플레이 | *(추가 예정)* |
-| 특수 블록 전환 | *(추가 예정)* |
-| 클리어 / 실패 | *(추가 예정)* |
+<img width="960" height="540" alt="Movie_001-ezgif com-resize" src="https://github.com/user-attachments/assets/3907fce4-7e62-46fc-8997-7d7b07ba6516" />
 
 ---
 
