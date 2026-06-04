@@ -8,6 +8,7 @@ Unity 6 기반 3매치 퍼즐. CSV 마스크 보드, 특수 블록, 연쇄 콤�
 
 <img width="960" height="540" alt="Movie_001-ezgif com-resize" src="https://github.com/user-attachments/assets/3907fce4-7e62-46fc-8997-7d7b07ba6516" />
 
+인접 스왑, 매칭 실패 롤백, 제거 → 낙하·리필 → 연쇄 처리, 특수 블록 발동 흐름을 확인할 수 있습니다.
 ---
 
 ## 목차
