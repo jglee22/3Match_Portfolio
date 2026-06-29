@@ -64,6 +64,15 @@ public class GridManager : MonoBehaviour
     public int ChainCount => chainCount;
     public Block LastMovedBlock => lastMovedBlock;
     public float RefillFallDuration => refillFallDuration;
+    public int TotalRoundCount => levels != null ? levels.Length : 0;
+
+    public bool HasNextRound(int levelIndex)
+    {
+        if (levels != null && levels.Length > 0)
+            return levelIndex + 1 < levels.Length;
+        // LevelData 미할당 시에도 클리어 → 다음 라운드 (같은/랜덤 마스크로 새 보드)
+        return true;
+    }
 
     void Awake()
     {
@@ -79,10 +88,28 @@ public class GridManager : MonoBehaviour
 
     void Start()
     {
+        SetupRound(startLevelIndex);
+    }
+
+    public void LoadRound(int levelIndex)
+    {
+        boardResolver?.StopCascade();
+        StopAllCoroutines();
+        ClearEntireBoard();
+        ResetBoardState();
+        SetupRound(levelIndex);
+    }
+
+    void SetupRound(int levelIndex)
+    {
         if (testModeLockMask)
+        {
             LoadTestMask();
+            if (levels != null && levels.Length > 0)
+                ApplyLevelSettings(levels[Mathf.Clamp(levelIndex, 0, levels.Length - 1)]);
+        }
         else if (levels != null && levels.Length > 0)
-            LoadLevel(levels[Mathf.Clamp(startLevelIndex, 0, levels.Length - 1)]);
+            LoadLevel(levels[Mathf.Clamp(levelIndex, 0, levels.Length - 1)]);
         else
             LoadRandomMask();
 
@@ -94,6 +121,32 @@ public class GridManager : MonoBehaviour
         GameTimer.Instance?.StartTimer();
     }
 
+    void ResetBoardState()
+    {
+        selectedBlock = null;
+        isProcessing = false;
+        chainCount = 0;
+        lastMovedBlock = null;
+    }
+
+    void ClearEntireBoard()
+    {
+        if (blocksParent != null)
+        {
+            for (int i = blocksParent.childCount - 1; i >= 0; i--)
+            {
+                Transform child = blocksParent.GetChild(i);
+                child.transform.DOKill();
+                if (blockPool != null)
+                    blockPool.Release(child.gameObject);
+                else
+                    Destroy(child.gameObject);
+            }
+        }
+
+        blocks = null;
+    }
+
     public void LoadLevel(LevelData level)
     {
         if (level == null) return;
@@ -101,11 +154,17 @@ public class GridManager : MonoBehaviour
         if (!LoadMaskFromResources(level.maskResourcePath))
             return;
 
+        ApplyLevelSettings(level);
+        Debug.Log($"[Level] {level.levelName} — {level.maskResourcePath}");
+    }
+
+    void ApplyLevelSettings(LevelData level)
+    {
+        if (level == null) return;
+
         GameManager.Instance.goalScore = level.goalScore;
         if (GameTimer.Instance != null)
             GameTimer.Instance.SetTotalTime(level.timeLimit);
-
-        Debug.Log($"[Level] {level.levelName} — {level.maskResourcePath}");
     }
 
     void LoadTestMask()
@@ -425,7 +484,7 @@ public class GridManager : MonoBehaviour
         DOVirtual.DelayedCall(0.25f, () =>
         {
             SwapGridRefs(a, b);
-            isProcessing = false;
+            SetProcessing(false);
         });
     }
 
@@ -500,7 +559,14 @@ public class GridManager : MonoBehaviour
 
     public void IncrementChainCount() => chainCount++;
     public void ResetChainCount() => chainCount = 0;
-    public void SetProcessing(bool value) => isProcessing = value;
+    public bool IsProcessing => isProcessing;
+
+    public void SetProcessing(bool value)
+    {
+        isProcessing = value;
+        if (!value)
+            GameManager.Instance?.TryFinalizePendingClear();
+    }
 
     public bool IsInsideGrid(int x, int y) => x >= 0 && x < width && y >= 0 && y < height;
 
@@ -509,6 +575,16 @@ public class GridManager : MonoBehaviour
         if (HasPossibleMove()) return;
         Debug.Log("[GridManager] 가능한 수 없음 — 셔플");
         StartCoroutine(ShuffleBoardRoutine());
+    }
+
+    public bool TryUseShuffleItem()
+    {
+        if (isProcessing || GameManager.Instance.isGameOver) return false;
+        if (GameDataManager.Instance == null || !GameDataManager.Instance.TryConsumeShuffleItem(1))
+            return false;
+
+        StartCoroutine(ShuffleBoardRoutine());
+        return true;
     }
 
     bool HasPossibleMove()
@@ -544,9 +620,218 @@ public class GridManager : MonoBehaviour
         b.blockType = t;
     }
 
+    struct CellSnapshot
+    {
+        public BlockType type;
+        public Sprite sprite;
+    }
+
+    static void ShuffleList<T>(IList<T> list)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+    }
+
+    static Dictionary<Block, CellSnapshot> SnapshotCells(IReadOnlyList<Block> cells)
+    {
+        var snapshot = new Dictionary<Block, CellSnapshot>(cells.Count);
+        foreach (Block b in cells)
+        {
+            snapshot[b] = new CellSnapshot
+            {
+                type = b.blockType,
+                sprite = b.spriteRenderer.sprite,
+            };
+        }
+        return snapshot;
+    }
+
+    void RestoreCells(Dictionary<Block, CellSnapshot> snapshot)
+    {
+        foreach (var pair in snapshot)
+        {
+            Block b = pair.Key;
+            CellSnapshot snap = pair.Value;
+            b.SetType(snap.type, snap.sprite != null ? snap.sprite : spriteDict[snap.type]);
+        }
+    }
+
+    void ApplyCellTypes(IReadOnlyList<Block> cells)
+    {
+        foreach (Block b in cells)
+            b.SetType(b.blockType, spriteDict[b.blockType]);
+    }
+
+    bool IsValidShuffleBoard()
+    {
+        return matchFinder.FindAllMatches().Count == 0 && HasPossibleMove();
+    }
+
+    bool TryPermutationShuffle(List<Block> cells, IReadOnlyList<BlockType> typePool, int maxAttempts)
+    {
+        var types = new BlockType[typePool.Count];
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            for (int i = 0; i < types.Length; i++)
+                types[i] = typePool[i];
+            ShuffleList(types);
+
+            for (int i = 0; i < cells.Count; i++)
+                cells[i].blockType = types[i];
+
+            if (!IsValidShuffleBoard())
+                continue;
+
+            ApplyCellTypes(cells);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryGreedyShuffleAssign(List<Block> cells, IReadOnlyList<BlockType> typePool, int maxAttempts)
+    {
+        var shuffleCoords = new HashSet<long>(cells.Count);
+        foreach (Block b in cells)
+            shuffleCoords.Add(PackCoord(b.x, b.y));
+
+        var remaining = new List<BlockType>(typePool);
+        var order = new List<Block>(cells);
+
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            remaining.Clear();
+            remaining.AddRange(typePool);
+            ShuffleList(order);
+            var assigned = new Dictionary<long, BlockType>(cells.Count);
+
+            bool failed = false;
+            foreach (Block b in order)
+            {
+                var candidates = new List<BlockType>();
+                foreach (BlockType type in remaining)
+                {
+                    if (!WouldCreateMatchAt(b.x, b.y, type, assigned, shuffleCoords))
+                        candidates.Add(type);
+                }
+
+                if (candidates.Count == 0)
+                {
+                    failed = true;
+                    break;
+                }
+
+                BlockType chosen = candidates[Random.Range(0, candidates.Count)];
+                remaining.Remove(chosen);
+                assigned[PackCoord(b.x, b.y)] = chosen;
+            }
+
+            if (failed)
+                continue;
+
+            foreach (Block b in cells)
+            {
+                BlockType type = assigned[PackCoord(b.x, b.y)];
+                b.SetType(type, spriteDict[type]);
+            }
+
+            if (IsValidShuffleBoard())
+                return true;
+        }
+
+        return false;
+    }
+
+    bool WouldCreateMatchAt(
+        int x,
+        int y,
+        BlockType type,
+        IReadOnlyDictionary<long, BlockType> assigned,
+        HashSet<long> shuffleCoords)
+    {
+        return CountAssignedRun(x, y, type, horizontal: true, assigned, shuffleCoords) >= 3
+            || CountAssignedRun(x, y, type, horizontal: false, assigned, shuffleCoords) >= 3;
+    }
+
+    int CountAssignedRun(
+        int x,
+        int y,
+        BlockType type,
+        bool horizontal,
+        IReadOnlyDictionary<long, BlockType> assigned,
+        HashSet<long> shuffleCoords)
+    {
+        int count = 1;
+
+        if (horizontal)
+        {
+            for (int dx = -1; dx >= -2; dx--)
+            {
+                if (!TryGetAssignedType(x + dx, y, assigned, shuffleCoords, out BlockType neighbor) || neighbor != type)
+                    break;
+                count++;
+            }
+            for (int dx = 1; dx <= 2; dx++)
+            {
+                if (!TryGetAssignedType(x + dx, y, assigned, shuffleCoords, out BlockType neighbor) || neighbor != type)
+                    break;
+                count++;
+            }
+        }
+        else
+        {
+            for (int dy = -1; dy >= -2; dy--)
+            {
+                if (!TryGetAssignedType(x, y + dy, assigned, shuffleCoords, out BlockType neighbor) || neighbor != type)
+                    break;
+                count++;
+            }
+            for (int dy = 1; dy <= 2; dy++)
+            {
+                if (!TryGetAssignedType(x, y + dy, assigned, shuffleCoords, out BlockType neighbor) || neighbor != type)
+                    break;
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    bool TryGetAssignedType(
+        int x,
+        int y,
+        IReadOnlyDictionary<long, BlockType> assigned,
+        HashSet<long> shuffleCoords,
+        out BlockType type)
+    {
+        type = default;
+        if (!IsInsideGrid(x, y))
+            return false;
+
+        long key = PackCoord(x, y);
+        if (assigned.TryGetValue(key, out type))
+            return true;
+
+        if (shuffleCoords.Contains(key))
+            return false;
+
+        Block block = GetBlock(x, y);
+        if (block == null || block.isSpecial || !MatchFinder.IsNormalMatchType(block.blockType))
+            return false;
+
+        type = block.blockType;
+        return true;
+    }
+
     IEnumerator ShuffleBoardRoutine()
     {
         isProcessing = true;
+        ResetChainCount();
+        lastMovedBlock = null;
+
         var cells = new List<Block>();
         for (int x = 0; x < width; x++)
         for (int y = 0; y < height; y++)
@@ -556,27 +841,28 @@ public class GridManager : MonoBehaviour
             if (b != null && !b.isSpecial) cells.Add(b);
         }
 
-        for (int attempt = 0; attempt < 20; attempt++)
+        if (cells.Count < 2)
         {
-            for (int i = cells.Count - 1; i > 0; i--)
-            {
-                int j = Random.Range(0, i + 1);
-                SwapTypesInPlace(cells[i], cells[j]);
-                var tmpSprite = cells[i].spriteRenderer.sprite;
-                cells[i].spriteRenderer.sprite = cells[j].spriteRenderer.sprite;
-                cells[j].spriteRenderer.sprite = tmpSprite;
-            }
+            SetProcessing(false);
+            yield break;
+        }
 
-            if (matchFinder.FindAllMatches().Count == 0 && HasPossibleMove())
-            {
-                foreach (Block b in cells)
-                    b.SetType(b.blockType, spriteDict[b.blockType]);
-                break;
-            }
+        Dictionary<Block, CellSnapshot> snapshot = SnapshotCells(cells);
+        var typePool = new List<BlockType>(cells.Count);
+        foreach (Block b in cells)
+            typePool.Add(snapshot[b].type);
+
+        bool shuffled = TryPermutationShuffle(cells, typePool, maxAttempts: 100)
+            || TryGreedyShuffleAssign(cells, typePool, maxAttempts: 60);
+
+        if (!shuffled)
+        {
+            Debug.LogWarning("[GridManager] 셔플 실패 — 이전 보드 상태로 복원");
+            RestoreCells(snapshot);
         }
 
         yield return new WaitForSeconds(0.2f);
-        isProcessing = false;
+        SetProcessing(false);
     }
 
     void SwapAndActivateSpecialBlock(Block special, Block other)
@@ -602,61 +888,136 @@ public class GridManager : MonoBehaviour
         });
     }
 
+    struct SpecialActivation
+    {
+        public int x;
+        public int y;
+        public BlockType blockType;
+        public bool isRowClear;
+    }
+
     IEnumerator ActivateSpecialBlockSequential(Block block)
     {
         SoundManager.Instance.PlaySFX(SoundManager.Instance.specialMatchSFX);
+        yield return ActivateSpecialChainRoutine(block.x, block.y, block.blockType, block.isRowClear);
+        FillEmptySpaces();
+        boardResolver.ContinueAfterSpecial();
+    }
+
+    IEnumerator ActivateSpecialChainRoutine(int startX, int startY, BlockType startType, bool startRowClear)
+    {
+        var queue = new Queue<SpecialActivation>();
+        var activated = new HashSet<long>();
+
+        EnqueueSpecialActivation(queue, activated, startX, startY, startType, startRowClear);
+
+        while (queue.Count > 0)
+        {
+            SpecialActivation current = queue.Dequeue();
+            long key = PackCoord(current.x, current.y);
+            if (activated.Contains(key)) continue;
+            activated.Add(key);
+
+            List<Block> targets = CollectSpecialEffectBlocks(
+                current.x, current.y, current.blockType, current.isRowClear);
+
+            var chained = new List<SpecialActivation>();
+            foreach (Block b in targets)
+            {
+                if (!b.isSpecial) continue;
+                if (b.x == current.x && b.y == current.y) continue;
+
+                EnqueueSpecialActivation(queue, activated, b.x, b.y, b.blockType, b.isRowClear, chained);
+            }
+
+            foreach (Block b in targets)
+            {
+                if (blocks[b.x, b.y] == null) continue;
+
+                ClearBlockAt(b.x, b.y);
+                ScoreManager.Instance.AddScore(10);
+                yield return new WaitForSeconds(0.05f);
+            }
+
+            foreach (SpecialActivation next in chained)
+                queue.Enqueue(next);
+        }
+    }
+
+    static void EnqueueSpecialActivation(
+        Queue<SpecialActivation> queue,
+        HashSet<long> activated,
+        int x,
+        int y,
+        BlockType blockType,
+        bool isRowClear,
+        List<SpecialActivation> store = null)
+    {
+        long key = PackCoord(x, y);
+        if (activated.Contains(key)) return;
+
+        var activation = new SpecialActivation
+        {
+            x = x,
+            y = y,
+            blockType = blockType,
+            isRowClear = isRowClear,
+        };
+
+        if (store != null)
+            store.Add(activation);
+        else
+            queue.Enqueue(activation);
+    }
+
+    static long PackCoord(int x, int y) => ((long)x << 32) | (uint)y;
+
+    List<Block> CollectSpecialEffectBlocks(int cx, int cy, BlockType blockType, bool isRowClear)
+    {
         var toRemove = new List<Block>();
 
-        if (block.blockType == BlockType.Bomb)
+        if (blockType == BlockType.Bomb)
         {
             for (int dx = -1; dx <= 1; dx++)
             for (int dy = -1; dy <= 1; dy++)
             {
-                if (!IsInsideGrid(block.x + dx, block.y + dy)) continue;
-                Block b = GetBlock(block.x + dx, block.y + dy);
+                if (!IsInsideGrid(cx + dx, cy + dy)) continue;
+                Block b = GetBlock(cx + dx, cy + dy);
                 if (b != null) toRemove.Add(b);
             }
         }
-        else if (block.blockType == BlockType.Lightning)
+        else if (blockType == BlockType.Lightning)
         {
             for (int j = 0; j < height; j++)
             {
-                Block b = GetBlock(block.x, j);
+                Block b = GetBlock(cx, j);
                 if (b != null) toRemove.Add(b);
             }
             for (int i = 0; i < width; i++)
             {
-                Block b = GetBlock(i, block.y);
+                Block b = GetBlock(i, cy);
                 if (b != null && !toRemove.Contains(b)) toRemove.Add(b);
             }
         }
-        else if (block.isRowClear)
+        else if (isRowClear)
         {
             for (int i = 0; i < width; i++)
             {
-                Block b = GetBlock(i, block.y);
+                Block b = GetBlock(i, cy);
                 if (b != null) toRemove.Add(b);
             }
-            toRemove.Sort((a, b) => Mathf.Abs(a.x - block.x).CompareTo(Mathf.Abs(b.x - block.x)));
+            toRemove.Sort((a, b) => Mathf.Abs(a.x - cx).CompareTo(Mathf.Abs(b.x - cx)));
         }
         else
         {
             for (int j = 0; j < height; j++)
             {
-                Block b = GetBlock(block.x, j);
+                Block b = GetBlock(cx, j);
                 if (b != null) toRemove.Add(b);
             }
-            toRemove.Sort((a, b) => Mathf.Abs(a.y - block.y).CompareTo(Mathf.Abs(b.y - block.y)));
+            toRemove.Sort((a, b) => Mathf.Abs(a.y - cy).CompareTo(Mathf.Abs(b.y - cy)));
         }
 
-        foreach (Block b in toRemove)
-        {
-            ClearBlockAt(b.x, b.y);
-            ScoreManager.Instance.AddScore(10);
-            yield return new WaitForSeconds(0.05f);
-        }
-
-        FillEmptySpaces();
-        boardResolver.ContinueAfterSpecial();
+        return toRemove;
     }
 }

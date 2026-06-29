@@ -148,11 +148,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e73bddaa75091844c8371a20edcd56ed, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  gridManager: {fileID: 654159507}
   gameOverPanel: {fileID: 1173507634}
+  gameOverTitleText: {fileID: 561282689}
   finalScoreText: {fileID: 964337149}
   restartButton: {fileID: 1719694405}
+  restartButtonText: {fileID: 2131979815}
   isGameOver: 0
   goalScore: 1500
+  nextRoundTransitionSeconds: 0.75
+  testReturnToLobbyOnClear: 1
 --- !u!4 &35116597
 Transform:
   m_ObjectHideFlags: 0
@@ -328,6 +333,53 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1208915322}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &236528526
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 236528528}
+  - component: {fileID: 236528527}
+  m_Layer: 0
+  m_Name: BlockPool
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &236528527
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 236528526}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bb53436cfd38da046b4f5a091050afa8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  blockPrefab: {fileID: 5220306985848241723, guid: f4ab59155ef61b44eb25826cdee22822, type: 3}
+  poolRoot: {fileID: 86794119}
+  prewarmCount: 32
+--- !u!4 &236528528
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 236528526}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &335433214
 GameObject:
   m_ObjectHideFlags: 0
@@ -357,8 +409,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 21532e2e20865024b8c415b0cdc02bf5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  totalTime: 60
+  totalTime: 10
   timerText: {fileID: 2045158013}
+  warningThreshold: 10
+  normalColor: {r: 1, g: 1, b: 1, a: 1}
+  warningColor: {r: 1, g: 0.35, b: 0.35, a: 1}
+  warningFlashColor: {r: 1, g: 0.92, b: 0.55, a: 1}
 --- !u!4 &335433216
 Transform:
   m_ObjectHideFlags: 0
@@ -776,7 +832,7 @@ MonoBehaviour:
   testMaskResourcePath: Masks/Mask_Level01
   blockPrefab: {fileID: 5220306985848241723, guid: f4ab59155ef61b44eb25826cdee22822, type: 3}
   blocksParent: {fileID: 86794119}
-  blockPool: {fileID: 0}
+  blockPool: {fileID: 236528527}
   blockSprites:
   - type: 0
     sprite: {fileID: 21300000, guid: f7a0e84e82b50934b8b66faaa73165d6, type: 3}
@@ -1930,3 +1986,4 @@ SceneRoots:
   - {fileID: 335433216}
   - {fileID: 35116597}
   - {fileID: 1208915322}
+  - {fileID: 236528528}

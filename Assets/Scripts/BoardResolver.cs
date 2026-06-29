@@ -22,6 +22,7 @@ public class BoardResolver : MonoBehaviour
     public void StartCascade()
     {
         StopAllCoroutines();
+        grid.ResetChainCount();
         StartCoroutine(CascadeRoutine());
     }
 
@@ -47,6 +48,7 @@ public class BoardResolver : MonoBehaviour
             if (matches.Count < 3)
             {
                 Debug.LogWarning($"[BoardResolver] 매치 수 부족({matches.Count}) — 연쇄 중단");
+                grid.ResetChainCount();
                 grid.SetProcessing(false);
                 yield break;
             }
@@ -76,6 +78,11 @@ public class BoardResolver : MonoBehaviour
 
             yield return new WaitForSeconds(settleDelay * 0.3f);
         }
+    }
+
+    public void StopCascade()
+    {
+        StopAllCoroutines();
     }
 
     public void ContinueAfterSpecial()

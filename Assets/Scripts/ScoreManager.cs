@@ -27,7 +27,7 @@ public class ScoreManager : MonoBehaviour
         RefreshScoreUI();
 
         if (currentScore >= GameManager.Instance.goalScore)
-            GameManager.Instance.EndGameClear();
+            GameManager.Instance.RequestClearWhenReady();
     }
 
     public void ResetScore()
