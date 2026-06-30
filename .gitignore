@@ -75,3 +75,8 @@ crashlytics-build.properties
 
 # Local recordings at repo root
 /Movie_*.gif
+
+# Paid Asset Store plugins (install locally, do not commit)
+/[Aa]ssets/[Pp]lugins/[Dd]emigiant/
+/[Aa]ssets/[Rr]esources/DOTweenSettings.asset
+/[Aa]ssets/[Rr]esources/DOTweenSettings.asset.meta

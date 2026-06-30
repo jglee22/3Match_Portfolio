@@ -36,7 +36,7 @@ Unity 6 기반 3매치 퍼즐 + 모바일 서비스 흐름(로비, Mock 상점, 
 | 인게임 씬 | `Assets/Scenes/Main.unity` |
 | 스크립트 | `Assets/Scripts/` |
 | 외부 SDK | Google Mobile Ads Unity Plugin v11.2.0 |
-| 라이브러리 | DOTween, TextMeshPro |
+| 라이브러리 | TextMeshPro (DOTween은 [별도 설치](#필수-에셋-별도-설치)) |
 
 ---
 
@@ -220,13 +220,29 @@ SwapAndActivateSpecialBlock
 
 ---
 
+## 필수 에셋 (별도 설치)
+
+이 레포에는 **유료 에셋 파일이 포함되어 있지 않습니다.** 아래를 설치하지 않으면 빌드·실행이 되지 않습니다.
+
+| 에셋 | 용도 |
+|------|------|
+| [DOTween (Hotween v2)](https://assetstore.unity.com/packages/tools/animation/dotween-hotween-v2-27676) | 블록 스왑·낙하·UI 연출 (`DG.Tweening`) |
+
+1. Unity Asset Store에서 DOTween 구매·다운로드
+2. 프로젝트에 `.unitypackage` Import → `Assets/Plugins/Demigiant/` 생성
+3. **Tools → Demigiant → DOTween Utility Panel → Setup DOTween** 실행
+4. `DOTweenSettings`는 설치 시 자동 생성됨 (`Assets/Resources/`)
+
+---
+
 ## 실행 방법
 
 ### 에디터
 
 1. Unity `6000.0.40f1`로 프로젝트 열기
-2. `Assets/Scenes/Lobby.unity` → Play
-3. Play / Shop / Reward / Inventory 테스트
+2. 위 [필수 에셋](#필수-에셋-별도-설치) DOTween 설치
+3. `Assets/Scenes/Lobby.unity` → Play
+4. Play / Shop / Reward / Inventory 테스트
 
 ### 인게임만 빠르게
 
