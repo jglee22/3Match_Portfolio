@@ -6,7 +6,7 @@ Unity 6 기반 3매치 퍼즐 + 모바일 서비스 흐름(로비, Mock 상점, 
 
 ## 플레이 영상
 
-<img width="960" height="540" alt="Movie_001-ezgif com-resize" src="https://github.com/user-attachments/assets/3907fce4-7e62-46fc-8997-7d7b07ba6516" />
+<img width="960" height="540" alt="Movie_003-ezgif com-resize" src="https://github.com/user-attachments/assets/00431110-b07f-4bac-8825-efd6cf7c08d5" />
 
 인접 스왑, 연쇄, 특수 블록, 로비·상점·리워드 광고 흐름을 확인할 수 있습니다.
 
