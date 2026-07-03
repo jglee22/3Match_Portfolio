@@ -1,6 +1,7 @@
-# 3Match Portfolio
+# Unity Mobile Game Client Flow Demo
+## 3Match Portfolio
 
-Unity 6 기반 3매치 퍼즐 + 모바일 서비스 흐름(로비, Mock 상점, Mock/AdMob 리워드 광고, 영구 재화).
+Unity 6 기반 3매치 퍼즐을 중심으로, 로비·상점·인벤토리·보상형 광고·설정·결과 보상·저장/로드까지 이어지는 모바일 게임 클라이언트 흐름 데모입니다.
 
 ---
 
@@ -8,7 +9,10 @@ Unity 6 기반 3매치 퍼즐 + 모바일 서비스 흐름(로비, Mock 상점, 
 
 <img width="960" height="540" alt="Movie_003-ezgif com-resize" src="https://github.com/user-attachments/assets/00431110-b07f-4bac-8825-efd6cf7c08d5" />
 
-인접 스왑, 연쇄, 특수 블록, 로비·상점·리워드 광고 흐름을 확인할 수 있습니다.
+상점 구매 → 인벤토리 수량 확인 → 보상형 광고 → 설정(BGM/SFX) → 3매치 플레이 → 클리어 보상 → 로비 복귀까지 이어지는 흐름을 확인할 수 있습니다.
+
+- 인접 스왑, 연쇄, 특수 블록
+- Mock 상점 / Mock·AdMob 리워드 광고 / 설정 메뉴
 
 ---
 
@@ -48,7 +52,8 @@ Lobby
  ├─ Play      → Main (3매치 플레이)
  ├─ Shop      → Mock 상점 (Gold/Gem/Shuffle 구매)
  ├─ Reward    → 리워드 광고 (Mock 또는 AdMob)
- └─ Inventory → Shuffle Item 보유 수
+ ├─ Inventory → Shuffle Item 보유 수
+ └─ Settings  → BGM/SFX ON·OFF, 저장 데이터 초기화
 
 Main
  ├─ 클리어/실패 → 보상 Gold·Gem 지급 → 저장
@@ -79,8 +84,10 @@ Main
 - 로비 UI (`LobbyManager`)
 - Mock 상점 (`IShopService` / `MockShopService`)
 - 리워드 광고 (`IAdService` / `MockAdService` / `AdMobAdService`)
+- 설정 메뉴 (`SettingsManager` / `SoundManager`) — BGM/SFX ON·OFF, 설정값 `PlayerPrefs` 저장, 저장 데이터 초기화(확인 팝업)
 - 클리어·실패 보상 (`RewardCalculator`)
-- 영구 데이터 (`GameDataManager`)
+- 저장 데이터 (`GameDataManager`) — Gold/Gem/Shuffle 저장·로드
+- 런타임 UI (`RuntimeUIBuilder` / `HyperCasualUIAssets`)
 
 ---
 
@@ -159,6 +166,10 @@ SwapAndActivateSpecialBlock
 | `LobbyManager` | 로비 UI |
 | `ShopManager` | Mock 상점 UI |
 | `AdRewardManager` | 리워드 광고 UI |
+| `SettingsManager` | 설정 팝업 (BGM/SFX, 데이터 초기화) |
+| `SoundManager` | BGM/SFX 재생·설정 저장 |
+| `RuntimeUIBuilder` | 런타임 모달·버튼 UI 생성 |
+| `HyperCasualUIAssets` | Hyper Casual UI 스프라이트 참조 |
 | `GameServicesBootstrap` | Mock/AdMob 전환 |
 | `SceneLoader` | Lobby ↔ Main |
 | `ShuffleItemUI` | 인게임 셔플 버튼 |
@@ -223,13 +234,13 @@ SwapAndActivateSpecialBlock
 
 ## 필수 에셋 (별도 설치)
 
-이 레포에는 **유료 에셋 파일이 포함되어 있지 않습니다.** 아래를 설치하지 않으면 빌드·실행이 되지 않습니다.
+이 레포에는 **별도 설치가 필요한 에셋 파일이 포함되어 있지 않습니다.** 아래를 설치하지 않으면 빌드·실행이 되지 않습니다.
 
 | 에셋 | 용도 |
 |------|------|
 | [DOTween (Hotween v2)](https://assetstore.unity.com/packages/tools/animation/dotween-hotween-v2-27676) | 블록 스왑·낙하·UI 연출 (`DG.Tweening`) |
 
-1. Unity Asset Store에서 DOTween 구매·다운로드
+1. Unity Asset Store에서 DOTween 다운로드
 2. 프로젝트에 `.unitypackage` Import → `Assets/Plugins/Demigiant/` 생성
 3. **Tools → Demigiant → DOTween Utility Panel → Setup DOTween** 실행
 4. `DOTweenSettings`는 설치 시 자동 생성됨 (`Assets/Resources/`)
@@ -243,7 +254,7 @@ SwapAndActivateSpecialBlock
 1. Unity `6000.0.40f1`로 프로젝트 열기
 2. 위 [필수 에셋](#필수-에셋-별도-설치) DOTween 설치
 3. `Assets/Scenes/Lobby.unity` → Play
-4. Play / Shop / Reward / Inventory 테스트
+4. Play / Shop / Reward / Inventory / Settings 테스트
 
 ### 인게임만 빠르게
 
