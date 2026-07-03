@@ -14,7 +14,16 @@ public class ShopManager : MonoBehaviour
     TextMeshProUGUI confirmMessageText;
     TextMeshProUGUI resultMessageText;
     ShopProduct pendingProduct;
+    Transform shopCloseButton;
     readonly MockShopService fallbackShopService = new MockShopService();
+
+    const int ShopUiVersion = 3;
+    static int builtShopUiVersion;
+
+    const float RowWidth = RuntimeUIBuilder.ModalRowWidth;
+    const float RowHeight = 96f;
+    const float RowGap = 16f;
+    const float ActionButtonHeight = 52f;
 
     IShopService ShopService =>
         GameServicesBootstrap.Instance != null
@@ -57,7 +66,23 @@ public class ShopManager : MonoBehaviour
 
     void EnsureUI()
     {
-        if (shopPanel != null) return;
+        if (shopPanel != null && builtShopUiVersion >= ShopUiVersion) return;
+
+        if (shopPanel != null)
+        {
+            Destroy(shopPanel);
+            shopPanel = null;
+            confirmPanel = null;
+            resultPanel = null;
+            shopCloseButton = null;
+        }
+
+        builtShopUiVersion = ShopUiVersion;
+
+        var ui = HyperCasualUIAssets.Instance;
+        int productCount = ShopCatalog.Products.Count;
+        float innerHeight = RuntimeUIBuilder.ModalHeaderHeight + productCount * RowHeight
+            + (productCount - 1) * RowGap + RuntimeUIBuilder.ModalFooterHeight;
 
         rootCanvas = FindAnyObjectByType<Canvas>();
         if (rootCanvas == null)
@@ -72,40 +97,53 @@ public class ShopManager : MonoBehaviour
             scaler.matchWidthOrHeight = 0.5f;
         }
 
-        shopPanel = CreatePanel(rootCanvas.transform, "ShopPanel", new Vector2(760f, 620f));
-        CreateLabel(shopPanel.transform, "Title", "Shop", new Vector2(0.5f, 1f), new Vector2(0f, -36f),
-            new Vector2(600f, 56f), 40, TextAlignmentOptions.Center, FontStyles.Bold);
+        shopPanel = RuntimeUIBuilder.CreateModal(rootCanvas.transform, "ShopPanel",
+            RuntimeUIBuilder.BuildModalOuterSize(720f, innerHeight), ui?.popupPanel);
+        var shopContent = RuntimeUIBuilder.GetPanelContent(shopPanel);
+        RuntimeUIBuilder.CreatePopupTitle(shopContent, "Title", "Shop");
 
-        float startY = 120f;
-        float gap = 130f;
-        int index = 0;
-        foreach (ShopProduct product in ShopCatalog.Products)
-        {
-            CreateProductRow(shopPanel.transform, product, startY - index * gap);
-            index++;
-        }
+        for (int i = 0; i < productCount; i++)
+            CreateProductRow(shopContent, ShopCatalog.Products[i],
+                RuntimeUIBuilder.GetModalRowY(i, RowHeight, RowGap, innerHeight, RuntimeUIBuilder.ModalHeaderHeight));
 
-        CreateButton(shopPanel.transform, "CloseButton", "닫기", new Vector2(0.5f, 0f), new Vector2(0f, 36f),
-            new Vector2(220f, 64f), new Color(0.35f, 0.38f, 0.45f, 1f), CloseShop);
+        RuntimeUIBuilder.CreateModalCloseButton(shopContent, CloseShop);
+        shopCloseButton = shopContent.Find("CloseButton");
 
-        confirmPanel = CreatePanel(rootCanvas.transform, "ShopConfirmPanel", new Vector2(560f, 320f));
-        confirmMessageText = CreateLabel(confirmPanel.transform, "ConfirmMessage", string.Empty,
-            new Vector2(0.5f, 0.58f), Vector2.zero, new Vector2(480f, 140f), 28,
-            TextAlignmentOptions.Center, FontStyles.Normal);
+        const float confirmWidth = 700f;
+        const float confirmMessageArea = 168f;
+        float confirmInnerHeight = confirmMessageArea + RuntimeUIBuilder.ModalOverlayFooterHeight;
+        float confirmInnerWidth = RuntimeUIBuilder.GetModalInnerWidth(confirmWidth);
 
-        CreateButton(confirmPanel.transform, "ConfirmYesButton", "구매", new Vector2(0.3f, 0.18f), Vector2.zero,
-            new Vector2(180f, 60f), new Color(0.2f, 0.55f, 0.35f, 1f), OnConfirmPurchase);
+        confirmPanel = RuntimeUIBuilder.CreateModal(shopPanel.transform, "ShopConfirmPanel",
+            RuntimeUIBuilder.BuildOverlayModalOuterSize(confirmWidth, confirmMessageArea), ui?.popupPanel);
+        var confirmContent = RuntimeUIBuilder.GetPanelContent(confirmPanel);
+        confirmMessageText = RuntimeUIBuilder.CreateLabel(confirmContent, "ConfirmMessage", string.Empty,
+            new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(confirmInnerWidth - 32f, 140f), 28,
+            TextAlignmentOptions.Center, FontStyles.Bold, RuntimeUIBuilder.Popup.Body);
+        RuntimeUIBuilder.LayoutOverlayMessage(confirmMessageText, confirmInnerWidth, confirmInnerHeight);
 
-        CreateButton(confirmPanel.transform, "ConfirmNoButton", "취소", new Vector2(0.7f, 0.18f), Vector2.zero,
-            new Vector2(180f, 60f), new Color(0.45f, 0.2f, 0.2f, 1f), CloseConfirm);
+        var confirmButtonPos = RuntimeUIBuilder.GetOverlayButtonPosition();
+        RuntimeUIBuilder.CreateButton(confirmContent, "ConfirmYesButton", "구매", new Vector2(0.3f, 0f), confirmButtonPos,
+            new Vector2(160f, 52f), UIButtonStyle.Green, OnConfirmPurchase);
 
-        resultPanel = CreatePanel(rootCanvas.transform, "ShopResultPanel", new Vector2(520f, 240f));
-        resultMessageText = CreateLabel(resultPanel.transform, "ResultMessage", string.Empty,
-            new Vector2(0.5f, 0.62f), Vector2.zero, new Vector2(440f, 100f), 30,
-            TextAlignmentOptions.Center, FontStyles.Bold);
+        RuntimeUIBuilder.CreateButton(confirmContent, "ConfirmNoButton", "취소", new Vector2(0.7f, 0f), confirmButtonPos,
+            new Vector2(160f, 52f), UIButtonStyle.Red, CloseConfirm);
 
-        CreateButton(resultPanel.transform, "ResultOkButton", "확인", new Vector2(0.5f, 0.2f), Vector2.zero,
-            new Vector2(180f, 56f), new Color(0.2f, 0.45f, 0.75f, 1f), CloseResult);
+        const float resultWidth = 560f;
+        const float resultMessageArea = 120f;
+        float resultInnerHeight = resultMessageArea + RuntimeUIBuilder.ModalOverlayFooterHeight;
+        float resultInnerWidth = RuntimeUIBuilder.GetModalInnerWidth(resultWidth);
+
+        resultPanel = RuntimeUIBuilder.CreateModal(shopPanel.transform, "ShopResultPanel",
+            RuntimeUIBuilder.BuildOverlayModalOuterSize(resultWidth, resultMessageArea), ui?.popupPanel);
+        var resultContent = RuntimeUIBuilder.GetPanelContent(resultPanel);
+        resultMessageText = RuntimeUIBuilder.CreateLabel(resultContent, "ResultMessage", string.Empty,
+            new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(resultInnerWidth - 32f, 100f), 30,
+            TextAlignmentOptions.Center, FontStyles.Bold, RuntimeUIBuilder.Popup.Body);
+        RuntimeUIBuilder.LayoutOverlayMessage(resultMessageText, resultInnerWidth, resultInnerHeight);
+
+        RuntimeUIBuilder.CreateButton(resultContent, "ResultOkButton", "확인", new Vector2(0.5f, 0f), confirmButtonPos,
+            new Vector2(160f, 52f), UIButtonStyle.Blue, CloseResult);
 
         confirmPanel.SetActive(false);
         resultPanel.SetActive(false);
@@ -114,40 +152,51 @@ public class ShopManager : MonoBehaviour
 
     void CreateProductRow(Transform parent, ShopProduct product, float y)
     {
-        var row = new GameObject(product.id, typeof(RectTransform), typeof(Image));
-        row.transform.SetParent(parent, false);
-        var rect = row.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = new Vector2(0f, y);
-        rect.sizeDelta = new Vector2(660f, 108f);
-        row.GetComponent<Image>().color = new Color(0.14f, 0.2f, 0.3f, 0.95f);
+        var ui = HyperCasualUIAssets.Instance;
+        var row = RuntimeUIBuilder.CreateListRow(parent, product.id, new Vector2(RowWidth, RowHeight), y);
 
-        CreateLabel(row.transform, "Name", product.displayName, new Vector2(0f, 0.5f), new Vector2(24f, 18f),
-            new Vector2(220f, 40f), 30, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+        Sprite rowIcon = RuntimeUIBuilder.GetRewardIcon(ui, product.rewardGold, product.rewardGems, product.rewardShuffle);
+        RuntimeUIBuilder.CreateRowIcon(row, rowIcon, 20f);
 
-        CreateLabel(row.transform, "Price", product.PriceLabel, new Vector2(0f, 0.5f), new Vector2(24f, -18f),
-            new Vector2(260f, 34f), 24, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
+        const float textLeft = 84f;
+        float buttonWidth = RuntimeUIBuilder.GetRowActionButtonWidth(ActionButtonHeight, UIButtonStyle.Blue, 132f);
+        const float buttonMargin = 16f;
+        const float textWidth = 200f;
+        float rewardInset = buttonWidth + buttonMargin + 8f;
 
-        CreateLabel(row.transform, "Reward", product.RewardLabel, new Vector2(0.5f, 0.5f), new Vector2(-40f, 0f),
-            new Vector2(220f, 40f), 26, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
+        RuntimeUIBuilder.CreateLabel(row, "Name", product.displayName, new Vector2(0f, 0.5f), new Vector2(textLeft, 16f),
+            new Vector2(textWidth, 34f), 28, TextAlignmentOptions.MidlineLeft, FontStyles.Bold, RuntimeUIBuilder.Popup.Body);
 
-        CreateButton(row.transform, "BuyButton", "구매", new Vector2(1f, 0.5f), new Vector2(-24f, 0f),
-            new Vector2(120f, 56f), new Color(0.2f, 0.45f, 0.75f, 1f), () => OpenConfirm(product));
+        RuntimeUIBuilder.CreateLabel(row, "Price", product.PriceLabel, new Vector2(0f, 0.5f), new Vector2(textLeft, -18f),
+            new Vector2(textWidth, 28f), 22, TextAlignmentOptions.MidlineLeft, FontStyles.Normal, RuntimeUIBuilder.Popup.Muted);
+
+        RuntimeUIBuilder.CreateLabel(row, "Reward", product.RewardLabel, new Vector2(1f, 0.5f), new Vector2(-rewardInset, -18f),
+            new Vector2(116f, 28f), 26, TextAlignmentOptions.MidlineRight, FontStyles.Bold,
+            RuntimeUIBuilder.GetRewardColor(product.rewardGold, product.rewardGems, product.rewardShuffle));
+
+        RuntimeUIBuilder.CreateButton(row, "BuyButton", "구매", new Vector2(1f, 0.5f), new Vector2(-buttonMargin, 0f),
+            new Vector2(buttonWidth, ActionButtonHeight), UIButtonStyle.Blue, () => OpenConfirm(product));
+    }
+
+    void SetShopFooterVisible(bool visible)
+    {
+        if (shopCloseButton != null)
+            shopCloseButton.gameObject.SetActive(visible);
     }
 
     void OpenConfirm(ShopProduct product)
     {
         pendingProduct = product;
-        confirmMessageText.text = product.ConfirmMessage;
-        confirmPanel.transform.SetAsLastSibling();
-        confirmPanel.SetActive(true);
+        RuntimeUIBuilder.ApplyModalMessageText(confirmMessageText, product.ConfirmMessage,
+            RuntimeUIBuilder.ModalMessageKind.Confirm, product.rewardGold, product.rewardGems, product.rewardShuffle);
+        SetShopFooterVisible(false);
+        RuntimeUIBuilder.BringModalToFront(confirmPanel);
     }
 
     void CloseConfirm()
     {
         confirmPanel.SetActive(false);
+        SetShopFooterVisible(true);
         pendingProduct = null;
     }
 
@@ -172,80 +221,15 @@ public class ShopManager : MonoBehaviour
 
     void ShowResult(bool success, string message)
     {
-        resultMessageText.text = message;
-        resultMessageText.color = success
-            ? new Color(0.55f, 0.95f, 0.7f)
-            : new Color(1f, 0.5f, 0.5f);
-        resultPanel.transform.SetAsLastSibling();
-        resultPanel.SetActive(true);
+        RuntimeUIBuilder.ApplyModalMessageText(resultMessageText, message,
+            success ? RuntimeUIBuilder.ModalMessageKind.Success : RuntimeUIBuilder.ModalMessageKind.Failure);
+        SetShopFooterVisible(false);
+        RuntimeUIBuilder.BringModalToFront(resultPanel);
     }
 
     void CloseResult()
     {
         resultPanel.SetActive(false);
-    }
-
-    static GameObject CreatePanel(Transform parent, string name, Vector2 size)
-    {
-        var dim = new GameObject($"{name}_Dim", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-        dim.transform.SetParent(parent, false);
-        var dimRect = dim.GetComponent<RectTransform>();
-        dimRect.anchorMin = Vector2.zero;
-        dimRect.anchorMax = Vector2.one;
-        dimRect.offsetMin = Vector2.zero;
-        dimRect.offsetMax = Vector2.zero;
-        dim.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.72f);
-
-        var panel = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-        panel.transform.SetParent(dim.transform, false);
-        var rect = panel.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.sizeDelta = size;
-        panel.GetComponent<Image>().color = new Color(0.1f, 0.14f, 0.22f, 0.98f);
-        return dim;
-    }
-
-    static TextMeshProUGUI CreateLabel(Transform parent, string name, string text, Vector2 anchor,
-        Vector2 anchoredPos, Vector2 size, int fontSize, TextAlignmentOptions align, FontStyles style)
-    {
-        var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
-        go.transform.SetParent(parent, false);
-        var rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = anchor;
-        rect.anchorMax = anchor;
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = anchoredPos;
-        rect.sizeDelta = size;
-
-        var label = go.GetComponent<TextMeshProUGUI>();
-        label.text = text;
-        label.fontSize = fontSize;
-        label.fontStyle = style;
-        label.alignment = align;
-        label.color = Color.white;
-        label.overflowMode = TextOverflowModes.Overflow;
-        return label;
-    }
-
-    static void CreateButton(Transform parent, string name, string label, Vector2 anchor, Vector2 anchoredPos,
-        Vector2 size, Color color, UnityEngine.Events.UnityAction onClick)
-    {
-        var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
-        go.transform.SetParent(parent, false);
-        var rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = anchor;
-        rect.anchorMax = anchor;
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = anchoredPos;
-        rect.sizeDelta = size;
-
-        go.GetComponent<Image>().color = color;
-        var button = go.GetComponent<Button>();
-        button.onClick.AddListener(onClick);
-
-        CreateLabel(go.transform, "Text", label, new Vector2(0.5f, 0.5f), Vector2.zero, size,
-            26, TextAlignmentOptions.Center, FontStyles.Bold);
+        SetShopFooterVisible(true);
     }
 }

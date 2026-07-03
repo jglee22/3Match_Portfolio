@@ -409,7 +409,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 21532e2e20865024b8c415b0cdc02bf5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  totalTime: 10
+  totalTime: 60
   timerText: {fileID: 2045158013}
   warningThreshold: 10
   normalColor: {r: 1, g: 1, b: 1, a: 1}

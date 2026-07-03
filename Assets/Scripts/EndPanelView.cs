@@ -6,15 +6,15 @@ using UnityEngine.UI;
 /// <summary>클리어/실패 결과 패널 레이아웃·연출</summary>
 public class EndPanelView : MonoBehaviour
 {
-    static readonly Color DimColor = new(0f, 0f, 0f, 0.68f);
-    static readonly Color ClearCardColor = new(0.07f, 0.13f, 0.22f, 0.96f);
-    static readonly Color FailCardColor = new(0.2f, 0.07f, 0.09f, 0.96f);
-    static readonly Color ClearTitleColor = new(0.45f, 0.95f, 0.78f);
-    static readonly Color FailTitleColor = new(1f, 0.42f, 0.42f);
+    const float PanelTargetWidth = 560f;
+
+    static readonly Color DimColor = new(0f, 0f, 0f, 0.82f);
 
     Image dimOverlay;
     RectTransform resultCard;
+    RectTransform contentRoot;
     Image cardBackground;
+    Image panelFrameImage;
     CanvasGroup canvasGroup;
 
     TextMeshProUGUI titleText;
@@ -50,7 +50,7 @@ public class EndPanelView : MonoBehaviour
         resultCard = transform.Find("ResultCard") as RectTransform;
         if (resultCard == null)
         {
-            var cardGo = new GameObject("ResultCard", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            var cardGo = new GameObject("ResultCard", typeof(RectTransform));
             resultCard = cardGo.GetComponent<RectTransform>();
             resultCard.SetParent(transform, false);
             resultCard.SetAsFirstSibling();
@@ -59,31 +59,107 @@ public class EndPanelView : MonoBehaviour
             resultCard.anchorMax = new Vector2(0.5f, 0.5f);
             resultCard.pivot = new Vector2(0.5f, 0.5f);
             resultCard.anchoredPosition = Vector2.zero;
-            resultCard.sizeDelta = new Vector2(520f, 320f);
+            resultCard.sizeDelta = new Vector2(PanelTargetWidth, 380f);
+        }
 
-            cardBackground = cardGo.GetComponent<Image>();
-            if (dimOverlay != null && dimOverlay.sprite != null)
-            {
-                cardBackground.sprite = dimOverlay.sprite;
-                cardBackground.type = Image.Type.Sliced;
-            }
-            cardBackground.color = ClearCardColor;
+        EnsureCardChrome();
+        EnsureContentRoot();
+
+        ReparentToCard(titleText?.rectTransform, new Vector2(0f, 64f), new Vector2(460f, 56f), 42f);
+        ReparentToCard(scoreText?.rectTransform, new Vector2(0f, -8f), new Vector2(460f, 96f), 34f);
+        ReparentToCard(buttonText?.transform.parent as RectTransform, new Vector2(0f, -92f), new Vector2(280f, 52f), 26f);
+
+        if (buttonText != null)
+        {
+            buttonText.color = Color.white;
+            var buttonImage = buttonText.transform.parent.GetComponent<Image>();
+            if (buttonImage != null)
+                RuntimeUIBuilder.StyleActionButton(buttonImage, UIButtonStyle.Green);
+        }
+    }
+
+    void EnsureCardChrome()
+    {
+        var backing = resultCard.Find("PanelBacking") as RectTransform;
+        if (backing == null)
+        {
+            var backingGo = new GameObject("PanelBacking", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            backing = backingGo.GetComponent<RectTransform>();
+            backing.SetParent(resultCard, false);
+            backing.SetAsFirstSibling();
+            Stretch(backing);
+            cardBackground = backingGo.GetComponent<Image>();
+            cardBackground.color = RuntimeUIBuilder.Popup.PanelFill;
+            cardBackground.raycastTarget = true;
         }
         else
         {
-            cardBackground = resultCard.GetComponent<Image>();
+            cardBackground = backing.GetComponent<Image>();
         }
 
-        ReparentToCard(titleText?.rectTransform, new Vector2(0f, 88f), new Vector2(460f, 64f), 42f);
-        ReparentToCard(scoreText?.rectTransform, new Vector2(0f, 8f), new Vector2(460f, 72f), 30f);
-        ReparentToCard(buttonText?.transform.parent as RectTransform, new Vector2(0f, -88f), new Vector2(240f, 72f), 28f);
+        var frame = resultCard.Find("PanelFrame") as RectTransform;
+        if (frame == null)
+        {
+            var frameGo = new GameObject("PanelFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            frame = frameGo.GetComponent<RectTransform>();
+            frame.SetParent(resultCard, false);
+            frame.SetSiblingIndex(1);
+            Stretch(frame);
+            panelFrameImage = frameGo.GetComponent<Image>();
+        }
+        else
+        {
+            panelFrameImage = frame.GetComponent<Image>();
+        }
     }
 
-    void ReparentToCard(RectTransform target, Vector2 anchoredPos, Vector2 size, float fontSize)
+    void ApplyPanelArt(bool cleared)
+    {
+        var ui = HyperCasualUIAssets.Instance;
+        Sprite panelSprite = cleared
+            ? ui?.clearPanel ?? ui?.popupPanel
+            : ui?.failPanel ?? ui?.popupPanel;
+
+        if (panelSprite != null && panelFrameImage != null)
+        {
+            RuntimeUIBuilder.ApplyPanelArt(panelFrameImage, panelSprite);
+            resultCard.sizeDelta = RuntimeUIBuilder.GetSpriteSize(panelSprite, PanelTargetWidth);
+            if (cardBackground != null)
+                cardBackground.enabled = false;
+            return;
+        }
+
+        if (panelFrameImage != null)
+        {
+            panelFrameImage.sprite = null;
+            panelFrameImage.enabled = false;
+        }
+
+        if (cardBackground != null)
+        {
+            cardBackground.enabled = true;
+            cardBackground.color = RuntimeUIBuilder.Popup.PanelFill;
+        }
+    }
+
+    void EnsureContentRoot()
+    {
+        contentRoot = resultCard.Find("Content") as RectTransform;
+        if (contentRoot == null)
+        {
+            var contentGo = new GameObject("Content", typeof(RectTransform));
+            contentRoot = contentGo.GetComponent<RectTransform>();
+            contentRoot.SetParent(resultCard, false);
+            contentRoot.SetAsLastSibling();
+            Stretch(contentRoot);
+        }
+    }
+
+    void ReparentToCard(RectTransform target, Vector2 anchoredPos, Vector2 size, float fontSize, Color? color = null)
     {
         if (target == null) return;
 
-        target.SetParent(resultCard, false);
+        target.SetParent(contentRoot, false);
         target.anchorMin = new Vector2(0.5f, 0.5f);
         target.anchorMax = new Vector2(0.5f, 0.5f);
         target.pivot = new Vector2(0.5f, 0.5f);
@@ -95,27 +171,58 @@ public class EndPanelView : MonoBehaviour
         {
             tmp.fontSize = fontSize;
             tmp.alignment = TextAlignmentOptions.Center;
+            if (color.HasValue)
+                tmp.color = color.Value;
         }
+    }
+
+    void ApplyScoreText(string scoreLine, bool cleared)
+    {
+        if (scoreText == null) return;
+
+        scoreText.richText = true;
+        scoreText.fontStyle = FontStyles.Bold;
+        scoreText.lineSpacing = -4f;
+
+        const string rewardPrefix = "보상:";
+        int rewardIndex = scoreLine.IndexOf(rewardPrefix, System.StringComparison.Ordinal);
+        if (rewardIndex < 0)
+        {
+            scoreText.text = scoreLine;
+            scoreText.color = RuntimeUIBuilder.Popup.ArtPanelBody;
+            return;
+        }
+
+        string head = scoreLine.Substring(0, rewardIndex).TrimEnd();
+        string reward = scoreLine.Substring(rewardIndex).Trim();
+        string bodyHex = ColorUtility.ToHtmlStringRGB(RuntimeUIBuilder.Popup.ArtPanelBody);
+        Color rewardColor = cleared
+            ? RuntimeUIBuilder.Popup.ArtPanelClearReward
+            : RuntimeUIBuilder.Popup.ArtPanelReward;
+        string rewardHex = ColorUtility.ToHtmlStringRGB(rewardColor);
+        scoreText.color = Color.white;
+        scoreText.text = $"<size=105%><color=#{bodyHex}>{head}</color></size>\n<color=#{rewardHex}>{reward}</color>";
     }
 
     public void Present(bool cleared, bool isAllClear, string title, string scoreLine, string buttonLabel)
     {
         EnsureLayout();
+        ApplyPanelArt(cleared);
 
         if (titleText != null)
         {
             titleText.text = title;
-            titleText.color = cleared ? ClearTitleColor : FailTitleColor;
+            titleText.fontStyle = FontStyles.Bold;
+            titleText.color = cleared
+                ? RuntimeUIBuilder.Popup.ArtPanelClearTitle
+                : RuntimeUIBuilder.Popup.ArtPanelTitle;
+            titleText.fontSize = cleared ? (isAllClear ? 44f : 42f) : 40f;
         }
 
-        if (scoreText != null)
-            scoreText.text = scoreLine;
+        ApplyScoreText(scoreLine, cleared);
 
         if (buttonText != null)
             buttonText.text = buttonLabel;
-
-        if (cardBackground != null)
-            cardBackground.color = cleared ? ClearCardColor : FailCardColor;
 
         gameObject.SetActive(true);
         canvasGroup.alpha = 0f;
@@ -165,6 +272,14 @@ public class EndPanelView : MonoBehaviour
                 dimOverlay.color = new Color(c.r, c.g, c.b, DimColor.a);
             }
         });
+    }
+
+    static void Stretch(RectTransform rect)
+    {
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
     }
 
     void OnDisable()

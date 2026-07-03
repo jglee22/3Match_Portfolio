@@ -28,10 +28,10 @@ public static class AdRewardService
                 return string.IsNullOrEmpty(detail) ? "광고 시청 완료!" : detail;
             case AdPlaybackResult.Failure:
                 return string.IsNullOrEmpty(detail)
-                    ? "광고 재생에 실패했습니다.\n잠시 후 다시 시도해 주세요."
-                    : detail;
+                    ? "광고 재생 실패\n잠시 후 다시 시도해 주세요."
+                    : $"광고 재생 실패\n{detail}";
             case AdPlaybackResult.Cancel:
-                return "광고 시청이 취소되었습니다.";
+                return "광고 시청 취소\n광고 시청이 취소되었습니다.";
             default:
                 return detail ?? string.Empty;
         }

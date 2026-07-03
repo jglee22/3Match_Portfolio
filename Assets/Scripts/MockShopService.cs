@@ -48,5 +48,5 @@ public class MockShopService : IShopService
         return true;
     }
 
-    public string FormatFailureMessage(string reason) => $"구매 실패\n\n{reason}";
+    public string FormatFailureMessage(string reason) => $"구매 실패\n{reason}";
 }

@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a8f3c2d1e0b94f6a8c7d6e5f4a3b2c1d, type: 3}
+  m_Name: HyperCasualUIAssets
+  m_EditorClassIdentifier: 
+  menuPanel: {fileID: 21300000, guid: 9baf89304be800d45a58eaa36ccf44d9, type: 3}
+  popupPanel: {fileID: 21300000, guid: 058a1ff09e52a4241b04ff61a23f2f14, type: 3}
+  shopPanel: {fileID: 21300000, guid: 1bf8fb44e11dba5468f68f347b0bdd0d, type: 3}
+  hudBar: {fileID: 21300000, guid: 311cc744bd9c5ba4aaa4de2c9404cef2, type: 3}
+  rowBackground: {fileID: 21300000, guid: e96be3c2e6d907741939a389219ea24f, type: 3}
+  failPanel: {fileID: 21300000, guid: 484634323020e594e91079b2c4f9b83d, type: 3}
+  clearPanel: {fileID: 21300000, guid: 058a1ff09e52a4241b04ff61a23f2f14, type: 3}
+  rewardPanel: {fileID: 21300000, guid: 9b41a5ca7110d2248a01c33101e4c7b7, type: 3}
+  inventoryPanel: {fileID: 21300000, guid: f50f5925718750f4e93552d82e66aa13, type: 3}
+  btnGreen: {fileID: 21300000, guid: 3772024f21af6034fab8ded6c81c815a, type: 3}
+  btnBlue: {fileID: 21300000, guid: ea29607519568b644b2f6edf6692a370, type: 3}
+  btnOrange: {fileID: 21300000, guid: 5b5e31ec79e3edd4780c6df4a5317e5c, type: 3}
+  btnGrey: {fileID: 21300000, guid: 1ee98f5999cfa08469b53d5ae4a19431, type: 3}
+  btnRed: {fileID: 21300000, guid: ac53a09e048412e428c78cff13d8dc5e, type: 3}
+  iconCoin: {fileID: 21300000, guid: 9ebf0c66c2c62094c8e1f7e1de73d891, type: 3}
+  iconGem: {fileID: 21300000, guid: a15e35acf6246404d93fcb899b8dde78, type: 3}
+  iconShuffle: {fileID: 21300000, guid: 9a80deb59a735084cb5703677e895994, type: 3}
+  iconShop: {fileID: 21300000, guid: 8656f00de9a2ad74fb94ea0bbde9f14a, type: 3}
+  iconAds: {fileID: 21300000, guid: 814e27f0f3bfc484db2317e5b4cc8dc5, type: 3}

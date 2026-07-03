@@ -48,6 +48,8 @@ public class ShuffleItemUI : MonoBehaviour
         var canvas = FindAnyObjectByType<Canvas>();
         if (canvas == null || shuffleButton != null) return;
 
+        var ui = HyperCasualUIAssets.Instance;
+
         var go = new GameObject("ShuffleButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
         go.transform.SetParent(canvas.transform, false);
 
@@ -56,13 +58,36 @@ public class ShuffleItemUI : MonoBehaviour
         rect.anchorMax = new Vector2(1f, 1f);
         rect.pivot = new Vector2(1f, 1f);
         rect.anchoredPosition = new Vector2(-24f, -24f);
-        rect.sizeDelta = new Vector2(240f, 56f);
+        rect.sizeDelta = new Vector2(260f, 64f);
 
-        go.GetComponent<Image>().color = new Color(0.22f, 0.48f, 0.32f, 1f);
+        var image = go.GetComponent<Image>();
+        if (ui?.btnGreen != null)
+            RuntimeUIBuilder.ApplySprite(image, ui.btnGreen);
+        else
+            image.color = new Color(0.22f, 0.48f, 0.32f, 1f);
+
         shuffleButton = go.GetComponent<Button>();
         shuffleButton.onClick.AddListener(OnShuffleClicked);
 
+        if (ui?.iconShuffle != null)
+        {
+            var iconGo = new GameObject("Icon", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            iconGo.transform.SetParent(go.transform, false);
+            var iconRect = iconGo.GetComponent<RectTransform>();
+            iconRect.anchorMin = new Vector2(0f, 0.5f);
+            iconRect.anchorMax = new Vector2(0f, 0.5f);
+            iconRect.pivot = new Vector2(0f, 0.5f);
+            iconRect.anchoredPosition = new Vector2(16f, 0f);
+            iconRect.sizeDelta = new Vector2(40f, 40f);
+            RuntimeUIBuilder.ApplySprite(iconGo.GetComponent<Image>(), ui.iconShuffle, preserveAspect: true);
+        }
+
         buttonLabel = CreateText(go.transform, "Label", "Shuffle (0)", 24);
+        var labelRect = buttonLabel.rectTransform;
+        labelRect.anchorMin = new Vector2(0f, 0f);
+        labelRect.anchorMax = new Vector2(1f, 1f);
+        labelRect.offsetMin = new Vector2(56f, 0f);
+        labelRect.offsetMax = new Vector2(-8f, 0f);
 
         var feedbackGo = new GameObject("ShuffleFeedback", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
         feedbackGo.transform.SetParent(canvas.transform, false);
@@ -70,7 +95,7 @@ public class ShuffleItemUI : MonoBehaviour
         fbRect.anchorMin = new Vector2(1f, 1f);
         fbRect.anchorMax = new Vector2(1f, 1f);
         fbRect.pivot = new Vector2(1f, 1f);
-        fbRect.anchoredPosition = new Vector2(-24f, -88f);
+        fbRect.anchoredPosition = new Vector2(-24f, -96f);
         fbRect.sizeDelta = new Vector2(320f, 40f);
 
         feedbackText = feedbackGo.GetComponent<TextMeshProUGUI>();

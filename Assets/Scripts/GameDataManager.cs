@@ -97,4 +97,14 @@ public class GameDataManager : MonoBehaviour
         OnInventoryChanged?.Invoke();
         return true;
     }
+
+    public void ResetToDefaults()
+    {
+        Gold = 1000;
+        Gems = 50;
+        ShuffleItems = 0;
+        Save();
+        OnCurrencyChanged?.Invoke();
+        OnInventoryChanged?.Invoke();
+    }
 }

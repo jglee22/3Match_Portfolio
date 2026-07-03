@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -16,7 +17,7 @@ public class LobbyManager : MonoBehaviour
     public Button settingsButton;
 
     GameObject inventoryPanel;
-    TextMeshProUGUI inventoryShuffleText;
+    readonly Dictionary<string, TextMeshProUGUI> inventoryCountTexts = new();
 
     void Awake()
     {
@@ -51,6 +52,9 @@ public class LobbyManager : MonoBehaviour
 
         if (AdRewardManager.Instance == null)
             new GameObject("AdRewardManager").AddComponent<AdRewardManager>();
+
+        if (SettingsManager.Instance == null)
+            new GameObject("SettingsManager").AddComponent<SettingsManager>();
     }
 
     void EnsureUI()
@@ -70,6 +74,8 @@ public class LobbyManager : MonoBehaviour
         if (FindAnyObjectByType<Canvas>() != null && playButton != null)
             return;
 
+        var ui = HyperCasualUIAssets.Instance;
+
         var canvasGo = new GameObject("LobbyCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         var canvas = canvasGo.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -82,27 +88,74 @@ public class LobbyManager : MonoBehaviour
         var bg = CreateImage(canvasGo.transform, "Background", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
         bg.color = new Color(0.1f, 0.14f, 0.22f, 1f);
 
-        var topBar = CreateTopStretchBar(canvasGo.transform, "TopBar", 96f);
-        var topBarBg = topBar.gameObject.AddComponent<Image>();
-        topBarBg.color = new Color(0f, 0f, 0f, 0.35f);
-        topBarBg.raycastTarget = false;
+        var topBar = RuntimeUIBuilder.CreateStretchBar(canvasGo.transform, "TopBar", 96f, ui?.hudBar);
+        goldText = RuntimeUIBuilder.CreateCurrencySlot(topBar, "GoldText", ui?.iconCoin, alignLeft: true);
+        shuffleText = RuntimeUIBuilder.CreateCenterCurrencySlot(topBar, "ShuffleText", ui?.iconShuffle);
+        gemText = RuntimeUIBuilder.CreateCurrencySlot(topBar, "GemText", ui?.iconGem, alignLeft: false);
 
-        goldText = CreateBarLabel(topBar, "GoldText", "Gold: 0", true);
-        shuffleText = CreateBarCenterLabel(topBar, "ShuffleText", "Shuffle: 0");
-        gemText = CreateBarLabel(topBar, "GemText", "Gems: 0", false);
+        var menuFrameGo = new GameObject("MenuFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        menuFrameGo.transform.SetParent(canvasGo.transform, false);
+        var menuFrameRect = menuFrameGo.GetComponent<RectTransform>();
+        menuFrameRect.anchorMin = new Vector2(0.5f, 0.5f);
+        menuFrameRect.anchorMax = new Vector2(0.5f, 0.5f);
+        menuFrameRect.pivot = new Vector2(0.5f, 0.5f);
+        menuFrameRect.anchoredPosition = new Vector2(0f, -32f);
 
-        var menu = CreateRect(canvasGo.transform, "Menu",
-            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(420f, 500f));
+        const float playButtonHeight = 88f;
+        const float buttonHeight = 72f;
+        const float buttonGap = 18f;
+        const int buttonCount = 5;
+        const float panelPadX = 56f;
+        const float panelPadY = 64f;
+        float stackHeight = playButtonHeight + buttonGap + (buttonCount - 1) * buttonHeight + (buttonCount - 2) * buttonGap;
+        float buttonWidth = RuntimeUIBuilder.GetMaxButtonWidth(buttonHeight,
+            UIButtonStyle.Green, UIButtonStyle.Blue, UIButtonStyle.Orange, UIButtonStyle.Grey);
+        float playButtonWidth = Mathf.Max(buttonWidth, RuntimeUIBuilder.GetMaxButtonWidth(playButtonHeight, UIButtonStyle.Green));
 
-        playButton = CreateMenuButton(menu, "PlayButton", "Play", new Vector2(0.5f, 0.82f));
-        shopButton = CreateMenuButton(menu, "ShopButton", "Shop", new Vector2(0.5f, 0.61f));
-        rewardButton = CreateMenuButton(menu, "RewardButton", "Reward", new Vector2(0.5f, 0.4f));
-        inventoryButton = CreateMenuButton(menu, "InventoryButton", "Inventory", new Vector2(0.5f, 0.19f));
-        settingsButton = CreateMenuButton(menu, "SettingsButton", "Settings", new Vector2(0.5f, -0.02f));
+        menuFrameRect.sizeDelta = new Vector2(playButtonWidth + panelPadX * 2f, stackHeight + panelPadY * 2f);
+        var menuFrame = menuFrameGo.GetComponent<Image>();
+        if (ui?.menuPanel != null)
+            RuntimeUIBuilder.ApplySprite(menuFrame, ui.menuPanel, preserveAspect: true);
+        else
+            menuFrame.color = new Color(0.12f, 0.18f, 0.28f, 0.92f);
+
+        var menuGo = new GameObject("Menu", typeof(RectTransform));
+        menuGo.transform.SetParent(menuFrameGo.transform, false);
+        var menu = menuGo.GetComponent<RectTransform>();
+        menu.anchorMin = Vector2.zero;
+        menu.anchorMax = Vector2.one;
+        menu.offsetMin = new Vector2(panelPadX, panelPadY);
+        menu.offsetMax = new Vector2(-panelPadX, -panelPadY);
+
+        float cursorY = stackHeight * 0.5f;
+
+        cursorY -= playButtonHeight * 0.5f;
+        playButton = RuntimeUIBuilder.CreateMenuButton(menu, "PlayButton", "Play",
+            new Vector2(0f, cursorY), playButtonHeight, playButtonWidth, UIButtonStyle.Green);
+        cursorY -= playButtonHeight * 0.5f + buttonGap;
+
+        cursorY -= buttonHeight * 0.5f;
+        shopButton = RuntimeUIBuilder.CreateMenuButton(menu, "ShopButton", "Shop",
+            new Vector2(0f, cursorY), buttonHeight, buttonWidth, UIButtonStyle.Blue);
+        cursorY -= buttonHeight * 0.5f + buttonGap;
+
+        cursorY -= buttonHeight * 0.5f;
+        rewardButton = RuntimeUIBuilder.CreateMenuButton(menu, "RewardButton", "Reward",
+            new Vector2(0f, cursorY), buttonHeight, buttonWidth, UIButtonStyle.Orange);
+        cursorY -= buttonHeight * 0.5f + buttonGap;
+
+        cursorY -= buttonHeight * 0.5f;
+        inventoryButton = RuntimeUIBuilder.CreateMenuButton(menu, "InventoryButton", "Inventory",
+            new Vector2(0f, cursorY), buttonHeight, buttonWidth, UIButtonStyle.Blue);
+        cursorY -= buttonHeight * 0.5f + buttonGap;
+
+        cursorY -= buttonHeight * 0.5f;
+        settingsButton = RuntimeUIBuilder.CreateMenuButton(menu, "SettingsButton", "Settings",
+            new Vector2(0f, cursorY), buttonHeight, buttonWidth, UIButtonStyle.Grey);
 
         if (FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
         {
-            var es = new GameObject("EventSystem",
+            new GameObject("EventSystem",
                 typeof(UnityEngine.EventSystems.EventSystem),
                 typeof(UnityEngine.EventSystems.StandaloneInputModule));
         }
@@ -145,7 +198,11 @@ public class LobbyManager : MonoBehaviour
         if (settingsButton != null)
         {
             settingsButton.onClick.RemoveAllListeners();
-            settingsButton.onClick.AddListener(() => Debug.Log("[Lobby] Settings — 준비 중"));
+            settingsButton.onClick.AddListener(() =>
+            {
+                if (AdRewardManager.BlocksLobbyInput) return;
+                SettingsManager.Instance?.OpenSettings();
+            });
         }
     }
 
@@ -160,8 +217,7 @@ public class LobbyManager : MonoBehaviour
         if (AdRewardManager.BlocksLobbyInput) return;
 
         EnsureInventoryPanel();
-        inventoryShuffleText.text =
-            $"Shuffle Item\n\n보유: {GameDataManager.Instance?.ShuffleItems ?? 0}개";
+        RefreshInventoryCounts();
         inventoryPanel.SetActive(true);
         inventoryPanel.transform.SetAsLastSibling();
     }
@@ -183,105 +239,63 @@ public class LobbyManager : MonoBehaviour
         inventoryPanel.SetActive(false);
     }
 
+    void RefreshInventoryCounts()
+    {
+        if (inventoryCountTexts.TryGetValue("shuffle", out TextMeshProUGUI shuffleCount))
+            shuffleCount.text = $"보유 x{GameDataManager.Instance?.ShuffleItems ?? 0}";
+    }
+
     GameObject CreateInventoryPanel(Transform parent)
     {
-        var dim = new GameObject("InventoryPanel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-        dim.transform.SetParent(parent, false);
-        var dimRect = dim.GetComponent<RectTransform>();
-        dimRect.anchorMin = Vector2.zero;
-        dimRect.anchorMax = Vector2.one;
-        dimRect.offsetMin = Vector2.zero;
-        dimRect.offsetMax = Vector2.zero;
-        dim.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.72f);
+        var ui = HyperCasualUIAssets.Instance;
+        const float rowHeight = 112f;
+        const float rowGap = 12f;
+        const int itemCount = 1;
+        float headerHeight = RuntimeUIBuilder.ModalHeaderHeight + RuntimeUIBuilder.ModalSubtitleExtra;
+        float listContentHeight = itemCount * rowHeight + (itemCount - 1) * rowGap;
+        float listViewportHeight = Mathf.Min(listContentHeight, RuntimeUIBuilder.ModalScrollMaxHeight);
+        float innerHeight = headerHeight + listViewportHeight + 8f + RuntimeUIBuilder.ModalFooterHeight;
 
-        var card = new GameObject("Card", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-        card.transform.SetParent(dim.transform, false);
-        var cardRect = card.GetComponent<RectTransform>();
-        cardRect.anchorMin = new Vector2(0.5f, 0.5f);
-        cardRect.anchorMax = new Vector2(0.5f, 0.5f);
-        cardRect.sizeDelta = new Vector2(480f, 280f);
-        card.GetComponent<Image>().color = new Color(0.1f, 0.14f, 0.22f, 0.98f);
+        var dim = RuntimeUIBuilder.CreateModal(parent, "InventoryPanel",
+            RuntimeUIBuilder.BuildModalOuterSize(520f, innerHeight), ui?.popupPanel);
 
-        CreateLabel(card.transform, "Title", "Inventory",
-            new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -40f), new Vector2(400f, 50f),
-            TextAlignmentOptions.Center);
+        var card = RuntimeUIBuilder.GetPanelContent(dim);
+        RuntimeUIBuilder.CreatePopupTitle(card, "Title", "Inventory");
+        RuntimeUIBuilder.CreatePopupSubtitle(card, "Subtitle", "게임 중 사용할 아이템");
 
-        inventoryShuffleText = CreateLabel(card.transform, "ShuffleCount", string.Empty,
-            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(400f, 120f),
-            TextAlignmentOptions.Center);
-        inventoryShuffleText.fontSize = 34;
+        var scrollContent = RuntimeUIBuilder.CreateModalListScroll(card, "InventoryScroll",
+            headerHeight + 4f, RuntimeUIBuilder.ModalFooterHeight + 4f, listContentHeight);
 
-        var closeGo = new GameObject("CloseButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
-        closeGo.transform.SetParent(card.transform, false);
-        var closeRect = closeGo.GetComponent<RectTransform>();
-        closeRect.anchorMin = new Vector2(0.5f, 0f);
-        closeRect.anchorMax = new Vector2(0.5f, 0f);
-        closeRect.anchoredPosition = new Vector2(0f, 36f);
-        closeRect.sizeDelta = new Vector2(180f, 56f);
-        closeGo.GetComponent<Image>().color = new Color(0.35f, 0.38f, 0.45f, 1f);
-        closeGo.GetComponent<Button>().onClick.AddListener(CloseInventory);
-        CreateLabel(closeGo.transform, "Text", "닫기", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero,
-            TextAlignmentOptions.Center).fontSize = 28;
+        CreateShuffleInventoryRow(scrollContent, ui, rowHeight, rowGap);
+
+        RuntimeUIBuilder.CreateModalCloseButton(card, CloseInventory);
 
         return dim;
     }
 
-    static TextMeshProUGUI CreateBarCenterLabel(RectTransform bar, string name, string text)
+    void CreateShuffleInventoryRow(Transform scrollContent, HyperCasualUIAssets ui, float rowHeight, float rowGap)
     {
-        var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
-        go.transform.SetParent(bar, false);
-        var rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0f);
-        rect.anchorMax = new Vector2(0.5f, 1f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = Vector2.zero;
-        rect.sizeDelta = new Vector2(320f, 0f);
+        const float horizontalPad = 4f;
+        var row = RuntimeUIBuilder.CreateScrollListRowStretch(scrollContent, "ShuffleRow", rowHeight, 0, rowGap,
+            horizontalPad);
+        RuntimeUIBuilder.CreateRowIcon(row, ui?.iconShuffle, 16f, 56f);
 
-        var label = go.GetComponent<TextMeshProUGUI>();
-        label.text = text;
-        label.fontSize = 32;
-        label.alignment = TextAlignmentOptions.Center;
-        label.color = Color.white;
-        label.overflowMode = TextOverflowModes.Overflow;
-        label.enableWordWrapping = false;
-        return label;
+        const float textLeft = 84f;
+        RuntimeUIBuilder.CreateLabel(row, "ItemName", "Shuffle Item", new Vector2(0f, 0.5f), new Vector2(textLeft, 20f),
+            new Vector2(200f, 34f), 28, TextAlignmentOptions.MidlineLeft, FontStyles.Bold, RuntimeUIBuilder.Popup.Body);
+
+        RuntimeUIBuilder.CreateLabel(row, "ItemDesc", "보드가 막혔을 때 블록을 섞습니다", new Vector2(0f, 0.5f), new Vector2(textLeft, -20f),
+            new Vector2(260f, 32f), 20, TextAlignmentOptions.MidlineLeft, FontStyles.Normal, RuntimeUIBuilder.Popup.Body);
+
+        var countText = RuntimeUIBuilder.CreateLabel(row, "Count", string.Empty, new Vector2(1f, 1f), new Vector2(-12f, -10f),
+            new Vector2(100f, 32f), 24, TextAlignmentOptions.TopRight, FontStyles.Bold,
+            RuntimeUIBuilder.Popup.InventoryCount);
+        countText.rectTransform.pivot = new Vector2(1f, 1f);
+        inventoryCountTexts["shuffle"] = countText;
     }
 
-    static RectTransform CreateTopStretchBar(Transform parent, string name, float height)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0f, 1f);
-        rect.anchorMax = new Vector2(1f, 1f);
-        rect.pivot = new Vector2(0.5f, 1f);
-        rect.anchoredPosition = Vector2.zero;
-        rect.sizeDelta = new Vector2(0f, height);
-        return rect;
-    }
-
-    static TextMeshProUGUI CreateBarLabel(RectTransform bar, string name, string text, bool alignLeft)
-    {
-        var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
-        go.transform.SetParent(bar, false);
-        var rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(alignLeft ? 0f : 1f, 0f);
-        rect.anchorMax = new Vector2(alignLeft ? 0f : 1f, 1f);
-        rect.pivot = new Vector2(alignLeft ? 0f : 1f, 0.5f);
-        rect.anchoredPosition = new Vector2(alignLeft ? 48f : -48f, 0f);
-        rect.sizeDelta = new Vector2(560f, 0f);
-
-        var label = go.GetComponent<TextMeshProUGUI>();
-        label.text = text;
-        label.fontSize = 36;
-        label.alignment = alignLeft ? TextAlignmentOptions.MidlineLeft : TextAlignmentOptions.MidlineRight;
-        label.color = Color.white;
-        label.overflowMode = TextOverflowModes.Overflow;
-        label.enableWordWrapping = false;
-        return label;
-    }
-
-    static RectTransform CreateRect(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 anchoredPos, Vector2 sizeDelta)
+    static RectTransform CreateRect(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax,
+        Vector2 anchoredPos, Vector2 sizeDelta)
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
@@ -294,7 +308,8 @@ public class LobbyManager : MonoBehaviour
         return rect;
     }
 
-    static Image CreateImage(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+    static Image CreateImage(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax,
+        Vector2 offsetMin, Vector2 offsetMax)
     {
         var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         go.transform.SetParent(parent, false);
@@ -304,48 +319,5 @@ public class LobbyManager : MonoBehaviour
         rect.offsetMin = offsetMin;
         rect.offsetMax = offsetMax;
         return go.GetComponent<Image>();
-    }
-
-    static TextMeshProUGUI CreateLabel(Transform parent, string name, string text, Vector2 anchorMin, Vector2 anchorMax,
-        Vector2 anchoredPos, Vector2 sizeDelta, TextAlignmentOptions align)
-    {
-        var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
-        go.transform.SetParent(parent, false);
-        var rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = anchorMin;
-        rect.anchorMax = anchorMax;
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = anchoredPos;
-        rect.sizeDelta = sizeDelta;
-
-        var label = go.GetComponent<TextMeshProUGUI>();
-        label.text = text;
-        label.fontSize = 32;
-        label.alignment = align;
-        label.color = Color.white;
-        return label;
-    }
-
-    static Button CreateMenuButton(Transform parent, string name, string label, Vector2 anchorY)
-    {
-        var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
-        go.transform.SetParent(parent, false);
-        var rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0f, anchorY.y);
-        rect.anchorMax = new Vector2(1f, anchorY.y);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = Vector2.zero;
-        rect.sizeDelta = new Vector2(0f, 72f);
-
-        var image = go.GetComponent<Image>();
-        image.color = new Color(0.2f, 0.45f, 0.75f, 1f);
-
-        var button = go.GetComponent<Button>();
-
-        var text = CreateLabel(go.transform, "Text", label, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero,
-            TextAlignmentOptions.Center);
-        text.fontSize = 30;
-
-        return button;
     }
 }

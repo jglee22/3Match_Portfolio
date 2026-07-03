@@ -37,6 +37,7 @@ Unity 6 기반 3매치 퍼즐 + 모바일 서비스 흐름(로비, Mock 상점, 
 | 스크립트 | `Assets/Scripts/` |
 | 외부 SDK | Google Mobile Ads Unity Plugin v11.2.0 |
 | 라이브러리 | TextMeshPro (DOTween은 [별도 설치](#필수-에셋-별도-설치)) |
+| UI 에셋 | Hyper Casual UI Pack (무료, `Assets/Hyper_Casual_UI/`) |
 
 ---
 

@@ -54,12 +54,12 @@ public class CurrencyManager : MonoBehaviour
         if (GameDataManager.Instance == null) return;
 
         if (goldText != null)
-            goldText.text = $"Gold: {GameDataManager.Instance.Gold:N0}";
+            goldText.text = GameDataManager.Instance.Gold.ToString("N0");
 
         if (gemText != null)
-            gemText.text = $"Gems: {GameDataManager.Instance.Gems:N0}";
+            gemText.text = GameDataManager.Instance.Gems.ToString("N0");
 
         if (shuffleText != null)
-            shuffleText.text = $"Shuffle: {GameDataManager.Instance.ShuffleItems}";
+            shuffleText.text = GameDataManager.Instance.ShuffleItems.ToString();
     }
 }
